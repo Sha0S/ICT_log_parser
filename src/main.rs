@@ -2,10 +2,11 @@
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
-use egui::{ProgressBar, ImageButton};
+use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
+use egui_extras::{TableBuilder, Column};
 //use egui_dropdown::DropDownBox;
 
-use logfile::Yield;
+use logfile::{Yield, FailureList, BResult};
 use std::fs;
 use std::path::Path;
 
@@ -71,6 +72,13 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[derive(PartialEq)]
+enum AppMode {
+    None,
+    Plot,
+    Hourly
+}
+
 //#[derive(Default)]
 struct MyApp {
     status: String,
@@ -83,7 +91,12 @@ struct MyApp {
     progress_m: Arc<RwLock<u32>>,
 
     yields: [Yield;3],
+    mb_yields: [Yield;3],
+    failures: Vec<FailureList>,
 
+    mode: AppMode,
+
+    hourly_stats: Vec<(u64,usize,usize,Vec<(logfile::BResult,u64)>)>,
     selected_test: usize,
 }
 
@@ -100,7 +113,11 @@ impl Default for MyApp {
             progress_m: Arc::new(RwLock::new(1)),
 
             yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
+            mb_yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
+            failures: Vec::new(),
 
+            mode: AppMode::None,
+            hourly_stats: Vec::new(),
             selected_test: 0,
         }
     }
@@ -130,16 +147,17 @@ impl eframe::App for MyApp {
                 ui.set_enabled(!self.loading);
                 ui.set_min_width(270.0);
 
-                if ui.button(MESSAGE[INPUT_FOLDER][self.lang]).clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                        self.input_path = path.display().to_string();
-                    }
-                }
-
                 //ui.text_edit_singleline(&mut self.input_path);
 
                 if ui.button("📁").clicked() && !self.loading {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.input_path = path.display().to_string();
+                    }
+
                     self.loading = true;
+                    self.mode = AppMode::None;
+                    self.hourly_stats.clear();
+                    self.selected_test = 0;
                     *self.progress_x.write().unwrap() = 0;
                     *self.progress_m.write().unwrap() = 1;
 
@@ -160,6 +178,7 @@ impl eframe::App for MyApp {
                         read_logs_in_path(lb_lock.clone(), p, px_lock, frame).expect("Failed to load the logs!");
 
                         (*lb_lock.write().unwrap()).update();
+                        (*lb_lock.write().unwrap()).get_failures();
                     });
                 }
                 
@@ -202,6 +221,9 @@ impl eframe::App for MyApp {
 
                     // Get Yields
                     self.yields = self.log_master.read().unwrap().get_yields();
+                    self.mb_yields = self.log_master.read().unwrap().get_mb_yields();
+                    self.failures = self.log_master.read().unwrap().get_failures();
+                    self.hourly_stats = self.log_master.read().unwrap().get_hourly_mb_stats();
                 }
             }
 
@@ -240,14 +262,96 @@ impl eframe::App for MyApp {
                     ui.monospace(format!("{0:.2}",self.yields[1].precentage()) );
                     ui.monospace(format!("{0:.2}",self.yields[2].precentage()) );
                 });
+            });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.monospace(MESSAGE[MB_YIELD][self.lang]);
+                    ui.monospace(MESSAGE[FIRST_T][self.lang]);
+                    ui.monospace(MESSAGE[AFTER_RT][self.lang]);
+                    ui.monospace(MESSAGE[TOTAL][self.lang]);
+                });
+
+                ui.add(egui::Separator::default().vertical());
+
+                ui.vertical(|ui| {
+                    ui.monospace("OK");
+                    ui.monospace(format!("{}",self.mb_yields[0].0) );
+                    ui.monospace(format!("{}",self.mb_yields[1].0) );
+                    ui.monospace(format!("{}",self.mb_yields[2].0) );
+                });
+
+                ui.add(egui::Separator::default().vertical());
+
+                ui.vertical(|ui| {
+                    ui.monospace("NOK");
+                    ui.monospace(format!("{}",self.mb_yields[0].1) );
+                    ui.monospace(format!("{}",self.mb_yields[1].1) );
+                    ui.monospace(format!("{}",self.mb_yields[2].1) );
+                });
+
+                ui.add(egui::Separator::default().vertical());
+
+                ui.vertical(|ui| {
+                    ui.monospace("%");
+                    ui.monospace(format!("{0:.2}",self.mb_yields[0].precentage()) );
+                    ui.monospace(format!("{0:.2}",self.mb_yields[1].precentage()) );
+                    ui.monospace(format!("{0:.2}",self.mb_yields[2].precentage()) );
+                });
+            });
+            
+            if !self.failures.is_empty() {
+                ui.vertical(|ui| {
+                    ui.separator();
+
+                    TableBuilder::new(ui)
+                        .striped(true)
+                        .column(Column::initial(200.0).resizable(true))
+                        .column(Column::remainder())
+                        .header(20.0, |mut header| {
+                            header.col(|ui| {
+                                ui.heading("Kiesők:");
+                            });
+                            header.col(|ui| {
+                                ui.heading("db");
+                            });
+                        })
+                        .body(|mut body| {
+                            for fail in &self.failures {
+                                body.row(20.0, |mut row| {
+                                    row.col(|ui| {
+                                        if ui.button(fail.name.to_owned()).clicked() {
+                                            self.selected_test = fail.test_id;
+                                        }
+                                    });
+                                    row.col(|ui| {
+                                        ui.label(format!("{}", fail.total));
+                                    });
+                                });
+                            }
+                        });
+                });
+
+            }
         });
             
-        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.loading);
 
-            {
+            ui.horizontal(|ui| {
+                if ui.button("Plot").clicked() {
+                    self.mode = AppMode::Plot;
+                }
+                if ui.button("Órai").clicked() {
+                    self.mode = AppMode::Hourly;
+                }
+            });
+
+            ui.separator();
+
+            if self.mode == AppMode::Plot {
                 let lfh = self.log_master.read().unwrap();
                 let testlist = lfh.get_testlist();
                 if !testlist.is_empty() {
@@ -269,8 +373,73 @@ impl eframe::App for MyApp {
 
                 }
             }
+
+            if self.mode == AppMode::Hourly {
+                if !self.hourly_stats.is_empty() {
+                    TableBuilder::new(ui)
+                    .striped(true)
+                    .column(Column::initial(200.0).resizable(true))
+                    .column(Column::initial(50.0).resizable(true))
+                    .column(Column::initial(50.0).resizable(true))
+                    .column(Column::auto().resizable(true))
+                    .header(20.0, |mut header| {
+                        header.col(|ui| {
+                            ui.heading("Time");
+                        });
+                        header.col(|ui| {
+                            ui.heading("OK");
+                        });
+                        header.col(|ui| {
+                            ui.heading("NOK");
+                        });
+                        header.col(|ui| {
+                            ui.heading("Results");
+                        });
+                    })
+                    .body(|mut body| {
+                        for hour in &self.hourly_stats {
+                            body.row(20.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label(u64_to_time(hour.0));
+                                });
+                                row.col(|ui| {
+                                    ui.label(format!("{}", hour.1));
+                                });
+                                row.col(|ui| {
+                                    ui.label(format!("{}", hour.2));
+                                });
+                                row.col(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
+                                        for (r,_) in &hour.3 {
+                                            ui.label(RichText::new("■").color(
+                                                if *r==BResult::Fail { Color32::RED } else { Color32::GREEN }
+                                            ));
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                    });
+                }
+            }
             
         });
 
     }
+}
+
+
+// Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
+fn u64_to_time(mut x: u64) -> String {
+    let y = x/u64::pow(10, 6);
+    x = x % u64::pow(10, 6);
+
+    let m = x/u64::pow(10, 4);
+    x = x % u64::pow(10, 4);
+
+    let d = x/u64::pow(10, 2);
+    x = x % u64::pow(10, 2);
+
+    format!("{0}.{1}.{2} {3}:00 - {3}:59", y, m, d, x)
 }

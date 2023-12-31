@@ -34,6 +34,8 @@ fn strip_index(s: &str) -> &str {
     chars.as_str()
 }
 
+
+
 type TResult = (bool, f32);
 type TList  = (String, TType);
 
@@ -54,7 +56,7 @@ impl Yield {
 }
 
 #[derive(Clone,Copy)]
-enum TLimit {
+pub enum TLimit {
     None,
     Lim2 (f32,f32),     // UL - LL
     Lim3 (f32,f32,f32)  // Nom - UL - LL
@@ -92,7 +94,8 @@ impl TType {
             "D-T" => TType::Digital,
             "A-MEA" => TType::Measurement,
             "BS-CON" => TType::BoundaryS,
-            "RPT" => TType::Unknown,    
+            "RPT" => TType::Unknown, // Failure report, not a test
+            "DPIN" => TType::Unknown,  // Failure report for testjet
             _ => {
                 println!("ERR: Unknown Test Type ! {}",s);
                 TType::Unknown }
@@ -120,7 +123,7 @@ impl TType {
 
 
 #[derive(Clone,Copy,PartialEq)]
-enum BResult {
+pub enum BResult {
 	Pass,
 	Fail,
 	Unknown 
@@ -142,6 +145,13 @@ impl From<bool> for BResult {
     }
 }
 
+pub struct FailureList {
+    pub test_id: usize,
+    pub name: String,
+    pub total: usize,
+    //after_rt: usize,
+    pub by_index: Vec<usize>
+}
 struct Test {
     name: String,
     ttype: TType,
@@ -158,6 +168,7 @@ pub struct LogFile {
     index: usize,
 
     result: bool,
+    //pins_test: bool,
 
     time_start: u64,
     time_end: u64,
@@ -174,9 +185,20 @@ impl LogFile {
         let mut product_id = String::new();
         let mut index: usize = 0;
         let mut result: bool = false;
+        //let mut pins_test: bool = true;
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
         let mut tests: Vec<Test> = Vec::new();
+
+        // pre-populate pins test
+        tests.push(
+            Test { 
+            name:   "pins".to_owned(),
+            ttype:  TType::Pin,
+            result: (true,0.0),
+            limits: TLimit::None }
+        );
+        //
 
         let fileb = fs::read_to_string(p).unwrap();
         let mut lines = fileb.lines();
@@ -207,15 +229,36 @@ impl LogFile {
                     DMC_mb = parts.next().unwrap().to_string();
 
                     tests.clear(); // Someitmes BMW GW logs have capactiance compensation data at the start of the log. We don't want that.
+                    // re-populate pins test
+                    tests.push(
+                        Test { 
+                        name:   "pins".to_owned(),
+                        ttype:  TType::Pin,
+                        result: (true,0.0),
+                        limits: TLimit::None }
+                    );
+                    //
                 }
                 "{@PF" => {
-                    // WIP - pin test
+                    tests[0].result.0 = str_to_result(parts.nth(2).unwrap());
                 }
                 "{@TS" => {
-                    // WIP - shorts/opens
+                    let tresult = str_to_result(parts.next().unwrap());
+                                
+                    let test = Test{    
+                        name: strip_index(parts.last().unwrap()).to_string(),
+                        ttype: TType::Shorts,
+                        result: (tresult,0.0),
+                        limits: TLimit::None};
+
+                    tests.push(test);
+
+                    _ = lines.next();
                 }
                 "{@TJET" => {
                     // WIP - testjet
+                    // Are the testjet measuremenets always in a BLOCK? 
+                    println!("ERR: Lone testjet test found! This is not implemented!!")
                 }
                 "{@D-T" => {
                     let tresult = str_to_result(parts.next().unwrap());
@@ -251,7 +294,7 @@ impl LogFile {
 
                     iline = lines.next();
 
-                    if name.ends_with("testjet") { continue; }
+                    //if name.ends_with("testjet") { continue; }
                     
                     while iline.is_some() {
                         line = iline.unwrap().trim();
@@ -273,8 +316,21 @@ impl LogFile {
 
                                 _tests.push(_test);*/
                             }
-                            TType::Digital => {
+                            TType::Testjet => {
+                                let tresult2 = str_to_result(parts.next().unwrap());
+                                
+                                let test = Test{    
+                                    name: format!("{}:{}",name,strip_index(parts.last().unwrap())),
+                                    ttype,
+                                    result: (tresult2,0.0),
+                                    limits: TLimit::None
+                                };
 
+                                tests.push(test);
+
+                                _ = lines.next();
+                            }
+                            TType::Digital => {
                                 let tresult2 = str_to_result(parts.next().unwrap());
                                 
                                 let test = Test{    
@@ -565,6 +621,26 @@ impl MultiBoard {
         // Sort results by time.
         self.results.sort_by_key(|k| k.0);
     }
+
+    fn get_failures(&self) -> Vec<(usize, usize)> {
+        let mut failures: Vec<(usize, usize)> = Vec::new(); // (test number, board index)
+
+        for b in &self.boards {
+            for l in &b.logs {
+                if l.result == BResult::Pass {
+                    continue;
+                }
+
+                for (i, r) in l.results.iter().enumerate() {
+                    if !r.0 {
+                        failures.push((i,b.index));
+                    }
+                }
+            }
+        }
+
+        failures
+    }
 }
 
 pub struct LogFileHandler {
@@ -731,7 +807,91 @@ impl LogFileHandler {
         [self.sb_first_yield, self.sb_final_yield, self.sb_total_yield]
     }
 
+    pub fn get_mb_yields(&self) -> [Yield; 3] {
+        [self.mb_first_yield, self.mb_final_yield, self.mb_total_yield]
+    }
+
+
     pub fn get_testlist(&self) -> &Vec<TList> {
         &self.testlist
+    }
+
+    pub fn get_failures(&self) -> Vec<FailureList> {
+        let mut failure_list: Vec<FailureList> = Vec::new();
+
+        for mb in &self.multiboards {
+            'failfor: for failure in mb.get_failures() {
+                // Check if already present
+                for fl in &mut failure_list {
+                    if fl.test_id == failure.0 {
+                        fl.total += 1;
+                        fl.by_index[failure.1-1] += 1;
+                        continue 'failfor;
+                    }
+                }
+                // If not make a new one
+                let mut new_fail = FailureList {
+                        test_id: failure.0,
+                        name: self.testlist[failure.0].0.clone(),
+                        total: 1, 
+                        by_index: vec![0;self.pp_multiboard]};
+
+                new_fail.by_index[failure.1-1] += 1;
+                failure_list.push(new_fail );
+                    
+            }
+        }
+
+        failure_list.sort_by_key(|k| k.total);
+        failure_list.reverse();
+
+        /*for fail in &failure_list {
+            println!("Test no {}, named {} failed {} times.", fail.test_id, fail.name, fail.total);
+        } */
+
+        failure_list
+    }
+
+    pub fn get_hourly_mb_stats(&self) -> Vec<(u64,usize,usize,Vec<(BResult,u64)>)> {
+        // Vec<(time in yymmddhh, total ok, total nok, Vec<(result, mmss)> )>
+        // Time is in format 231222154801 by default YYMMDDHHMMSS
+        // We don't care about the last 4 digit, so we can div by 10^4
+
+        let mut ret: Vec<(u64,usize,usize,Vec<(BResult,u64)>)> = Vec::new();
+
+        for mb in &self.multiboards {
+            'resfor: for res in &mb.results {
+                let time = res.0 / u64::pow(10,4);
+                let time_2 = res.0 % u64::pow(10,4);
+
+                //println!("{} - {} - {}", res.0, time, time_2);
+
+                // check if a entry for "time" exists
+                for r in &mut ret {
+                    if r.0 == time {
+                        if res.1 == BResult::Pass {
+                            r.1 += 1;
+                        } else {
+                            r.2 += 1; }
+                        
+                        r.3.push((res.1,time_2));
+
+                        continue 'resfor;}
+                } 
+
+                ret.push((
+                    time,
+                    if res.1 == BResult::Pass {1} else {0},
+                    if res.1 != BResult::Pass {1} else {0},
+                    vec![(res.1,time_2)]
+                ));
+            }
+        }
+
+        for r in &mut ret {
+            r.3.sort_by_key(|k| k.1);
+        }
+
+        ret
     }
 }
