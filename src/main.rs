@@ -4,6 +4,8 @@
 use eframe::egui;
 use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
 use egui_extras::{TableBuilder, Column};
+use chrono::{NaiveDate, NaiveTime, Timelike};
+
 //use egui_dropdown::DropDownBox;
 
 use logfile::{Yield, FailureList, BResult};
@@ -13,7 +15,6 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-//mod time_and_date;
 mod logfile;
 
 include!("locals.rs");
@@ -86,6 +87,17 @@ struct MyApp {
     input_path: String,
     log_master: Arc<RwLock<logfile::LogFileHandler>>,
 
+    //#[cfg(feature = "chrono")]
+    //#[cfg_attr(feature = "serde", serde(skip))]
+    date_start: NaiveDate,
+    date_end: NaiveDate,
+
+    time_start: NaiveTime,
+    time_start_string: String, 
+    time_end: NaiveTime,
+    time_end_string: String, 
+    time_end_use: bool,
+
     loading: bool,
     progress_x: Arc<RwLock<u32>>,
     progress_m: Arc<RwLock<u32>>,
@@ -102,11 +114,23 @@ struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
+        let time_start = chrono::NaiveTime::from_hms_opt(0,0,0).unwrap();
+        let time_end = chrono::NaiveTime::from_hms_opt(23,59,59).unwrap();
+
         Self {
             status: "Ready to go!".to_owned(),
             lang: 0,
             input_path: ".\\log\\".to_owned(),
             log_master: Arc::new(RwLock::new(logfile::LogFileHandler::new())),
+
+            date_start: chrono::Local::now().date_naive(),  
+            date_end: chrono::Local::now().date_naive(),
+
+            time_start,
+            time_start_string: time_start.format("%H:%M:%S").to_string(),
+            time_end,
+            time_end_string: time_end.format("%H:%M:%S").to_string(),
+            time_end_use: true,
 
             loading: false,
             progress_x: Arc::new(RwLock::new(0)),
@@ -143,11 +167,12 @@ impl eframe::App for MyApp {
         });
 
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
+
+            // "Menu" bar
+
             ui.horizontal(|ui| {
                 ui.set_enabled(!self.loading);
                 ui.set_min_width(270.0);
-
-                //ui.text_edit_singleline(&mut self.input_path);
 
                 if ui.button("📁").clicked() && !self.loading {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -190,9 +215,113 @@ impl eframe::App for MyApp {
                      }
                      self.status = "Done!".to_owned();*/
                  }
+            
+                 //egui::ComboBox::from_label("")
+                 /*.selected_text(testlist[self.selected_test].0.to_owned())
+                 .show_ui(ui, |ui| {
+
+                     for (i, t) in testlist.iter().enumerate() {
+                         ui.selectable_value(&mut self.selected_test, i, t.0.to_owned());
+                     }
+
+                 }
+                )*/;
             });
 
+            ui.separator();
+
+            // Date and time pickers:
+
+            ui.horizontal(|ui| {
+
+                ui.add(egui_extras::DatePickerButton::new(&mut self.date_start).id_source("Starting time"));
+
+                let response = ui.add(egui::TextEdit::singleline(&mut self.time_start_string).desired_width(100.0));
+                if response.lost_focus() {
+                    match NaiveTime::parse_from_str( self.time_start_string.as_str(),"%H:%M:%S") {
+                        Ok(new_t) => {
+                            self.time_start = new_t;
+                        }
+                        Err(_) => {
+                            println!("ERR: Failed to pares time string, reverting!");
+                            self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
+                        }
+                    }
+                }
+
+                if ui.button("Load").clicked() {
+
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
+                    ui.set_enabled(self.time_end_use);
+
+                    ui.add(egui_extras::DatePickerButton::new(&mut self.date_end).id_source("Ending time"));
+
+                    let response = ui.add(egui::TextEdit::singleline(&mut self.time_end_string).desired_width(100.0));
+                    if response.lost_focus() {
+                        match NaiveTime::parse_from_str( self.time_end_string.as_str(),"%H:%M:%S") {
+                            Ok(new_t) => {
+                                self.time_end = new_t;
+                            }
+                            Err(_) => {
+                                println!("ERR: Failed to pares time string, reverting!");
+                                self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                            }
+                        }
+                    }
+                });
+
+
+                ui.checkbox(&mut self.time_end_use, "");
+            });
+
+            ui.separator();
+
+            // Shortcuts for common data and time settings:
+
+            ui.horizontal(|ui| { 
+                if ui.button("This shift").clicked() {
+                    self.date_start = chrono::Local::now().date_naive();
+                    self.date_end = chrono::Local::now().date_naive();
+
+                    let time_now = chrono::Local::now().naive_local();
+                    let hours_now = time_now.hour();
+                    if 6 <= hours_now && hours_now < 14 {
+                        self.time_start = chrono::NaiveTime::from_hms_opt(6,0,0).unwrap();
+                        self.time_end = chrono::NaiveTime::from_hms_opt(13,59,59).unwrap();
+                    } else if 14 <= hours_now && hours_now < 22  {
+                        self.time_start = chrono::NaiveTime::from_hms_opt(14,0,0).unwrap();
+                        self.time_end = chrono::NaiveTime::from_hms_opt(21,59,59).unwrap();
+                    } else {
+                        if hours_now < 6 {
+                            self.date_start = self.date_start.pred_opt().unwrap(); }
+                            self.time_start = chrono::NaiveTime::from_hms_opt(22,0,0).unwrap();
+                            self.time_end = chrono::NaiveTime::from_hms_opt(5,59,59).unwrap();
+                    }
+
+                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
+                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                }
+
+                if ui.button("Last 24h").clicked() {
+                    self.date_start = chrono::Local::now().date_naive().pred_opt().unwrap();
+                    self.time_start = chrono::Local::now().time();
+                    self.date_end = chrono::Local::now().date_naive();
+                    self.time_end = chrono::Local::now().time();
+
+                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
+                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                }
+            });
+
+            // Loading Bar
+
             if self.loading {
+
+                ui.separator();
 
                 let mut xx: u32 = 0;
                 let mut mm: u32 = 1;
@@ -226,6 +355,8 @@ impl eframe::App for MyApp {
                     self.hourly_stats = self.log_master.read().unwrap().get_hourly_mb_stats();
                 }
             }
+
+            // Statistics:
 
             ui.separator();
             ui.horizontal(|ui| {
@@ -300,6 +431,8 @@ impl eframe::App for MyApp {
                     ui.monospace(format!("{0:.2}",self.mb_yields[2].precentage()) );
                 });
             });
+
+            // Failure list:
             
             if !self.failures.is_empty() {
                 ui.vertical(|ui| {
@@ -336,6 +469,7 @@ impl eframe::App for MyApp {
             }
         });
             
+        // Central panel
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.loading);

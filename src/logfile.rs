@@ -3,9 +3,7 @@
 
 /*
 ToDo:
-- Multiboard level statistics?
 - Implement Export functions
-- Implement missing testtypes (pins/shorts/testjet)
 */
 
 use std::ffi::OsString;
