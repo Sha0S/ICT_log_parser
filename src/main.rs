@@ -4,11 +4,13 @@
 use eframe::egui;
 use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
 use egui_extras::{TableBuilder, Column};
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use egui_plot::{Line, Plot, PlotPoints};
+
+use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime};
 
 //use egui_dropdown::DropDownBox;
 
-use logfile::{Yield, FailureList, BResult};
+use logfile::{LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
 use std::fs;
 use std::path::Path;
 
@@ -19,6 +21,12 @@ mod logfile;
 
 include!("locals.rs");
 
+/*
+Currently in the _t functions it checks if the last modification to the files is between the limits. 
+This wasn't the original behaviour, but it should be fine? It is also really fast.
+If preformance is an issue, then maybe we could add some filtering to the sub-directories..?
+*/
+
 fn count_logs_in_path(p: &Path) -> Result< u32, std::io::Error> {
     let mut i = 0;
     for file in fs::read_dir(p)? {
@@ -27,14 +35,35 @@ fn count_logs_in_path(p: &Path) -> Result< u32, std::io::Error> {
         if path.is_dir() {
             i += count_logs_in_path(&path)?;
         } else {
-            i += 1;
+            i += 1; 
         }
     }
 
     Ok(i)
 }
 
-fn read_logs_in_path(b:  Arc<RwLock<logfile::LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context) -> Result<u32,std::io::Error> {
+fn count_logs_in_path_t(p: &Path, start: chrono::DateTime<Local> , end: chrono::DateTime<Local>) -> Result< u32, std::io::Error> {
+    let mut i = 0;
+    for file in fs::read_dir(p)? {
+        let file = file?;
+        let path = file.path();
+        if path.is_dir() {
+            i += count_logs_in_path_t(&path, start, end)?;
+        } else {
+            if let Ok(x) = path.metadata() {
+                let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
+                if ct >= start && ct < end {
+                    i += 1; 
+                }
+            }
+        }
+    }
+
+    println!("found {i} files between {:?} and {:?}", start, end );
+    Ok(i)
+}
+
+fn read_logs_in_path(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context) -> Result<u32,std::io::Error> {
     println!("INFO: RLiP start at {}", p.display());
     
     for file in fs::read_dir(p)? {
@@ -52,6 +81,76 @@ fn read_logs_in_path(b:  Arc<RwLock<logfile::LogFileHandler>>, p: &Path, x_lock:
 
     println!("INFO: RLiP end {}", p.display());   
     Ok(0)
+}
+
+fn read_logs_in_path_t(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context,
+    start: chrono::DateTime<Local> , end: chrono::DateTime<Local>) -> Result<u32,std::io::Error> {
+        println!("INFO: RLiP start at {}", p.display());
+        
+        for file in fs::read_dir(p)? {
+                let file = file?;
+                let path = file.path();
+                if path.is_dir() {
+                    let cl = x_lock.clone();
+                    read_logs_in_path_t(b.clone(),&path,cl, frame.clone(), start, end)?;
+                } else {
+                    if let Ok(x) = path.metadata() {
+                        let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
+                        if ct >= start && ct < end {
+                            (*b.write().unwrap()).push_from_file(&path);
+                            *x_lock.write().unwrap() += 1;
+                            frame.request_repaint();
+                        }
+                    }
+                }
+        }
+
+        println!("INFO: RLiP end {}", p.display());   
+        Ok(0)
+}
+
+// Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
+fn u64_to_time(mut x: u64) -> String {
+    let y = x/u64::pow(10, 6);
+    x = x % u64::pow(10, 6);
+
+    let m = x/u64::pow(10, 4);
+    x = x % u64::pow(10, 4);
+
+    let d = x/u64::pow(10, 2);
+    x = x % u64::pow(10, 2);
+
+    format!("{0}.{1}.{2} {3}:00 - {3}:59", y, m, d, x)
+}
+
+struct Product{
+    desc: String,
+    //id: String,
+    path: String,
+    //test_folder: String,
+}
+
+fn load_product_list() -> Vec<Product> {
+    let mut list = Vec::new();
+
+    let p = Path::new(".\\res\\products");
+    let fileb = fs::read_to_string(p).unwrap();
+    for line in fileb.lines() {
+        if !line.is_empty() {
+            let mut parts = line.split('|');
+            let desc = parts.next().unwrap().to_owned();
+            let path = parts.next().unwrap().to_owned();
+
+            if Path::new(&path).try_exists().is_ok_and(|x| x == true) {
+                list.push (
+                    Product{
+                        desc,
+                        path
+                    } ); }
+        } 
+    }
+    
+    list
 }
 
 fn main() -> Result<(), eframe::Error> {
@@ -84,11 +183,10 @@ enum AppMode {
 struct MyApp {
     status: String,
     lang: usize,
-    input_path: String,
-    log_master: Arc<RwLock<logfile::LogFileHandler>>,
+    selected_product: usize,
+    product_list: Vec<Product>,
+    log_master: Arc<RwLock<LogFileHandler>>,
 
-    //#[cfg(feature = "chrono")]
-    //#[cfg_attr(feature = "serde", serde(skip))]
     date_start: NaiveDate,
     date_end: NaiveDate,
 
@@ -108,8 +206,11 @@ struct MyApp {
 
     mode: AppMode,
 
-    hourly_stats: Vec<(u64,usize,usize,Vec<(logfile::BResult,u64)>)>,
+    hourly_stats: Vec<(u64,usize,usize,Vec<(BResult,u64)>)>,
+
     selected_test: usize,
+    selected_test_tmp: usize,
+    selected_test_results: (TType,Vec<(u64, usize, TResult, TLimit)>),
 }
 
 impl Default for MyApp {
@@ -120,8 +221,9 @@ impl Default for MyApp {
         Self {
             status: "Ready to go!".to_owned(),
             lang: 0,
-            input_path: ".\\log\\".to_owned(),
-            log_master: Arc::new(RwLock::new(logfile::LogFileHandler::new())),
+            product_list: load_product_list(),
+            selected_product: 0,
+            log_master: Arc::new(RwLock::new(LogFileHandler::new())),
 
             date_start: chrono::Local::now().date_naive(),  
             date_end: chrono::Local::now().date_naive(),
@@ -142,7 +244,10 @@ impl Default for MyApp {
 
             mode: AppMode::None,
             hourly_stats: Vec::new(),
+
             selected_test: 0,
+            selected_test_tmp: 0,
+            selected_test_results: (TType::Unknown,Vec::new()),
         }
     }
 }
@@ -175,28 +280,27 @@ impl eframe::App for MyApp {
                 ui.set_min_width(270.0);
 
                 if ui.button("📁").clicked() && !self.loading {
+                    let mut input_path = String::new();
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                        self.input_path = path.display().to_string();
+                        input_path = path.display().to_string();
                     }
 
                     self.loading = true;
-                    self.mode = AppMode::None;
+                    //self.mode = AppMode::None;
                     self.hourly_stats.clear();
                     self.selected_test = 0;
                     *self.progress_x.write().unwrap() = 0;
                     *self.progress_m.write().unwrap() = 1;
 
-                    let pi=self.input_path.clone();
                     let lb_lock = self.log_master.clone();
                     let pm_lock = self.progress_m.clone();
                     let px_lock = self.progress_x.clone();
                     let frame = ctx.clone();
 
                     thread::spawn(move || {
-                        let p = Path::new(&pi);
+                        let p = Path::new(&input_path);
 
                         *pm_lock.write().unwrap() = count_logs_in_path(p).unwrap();
-                        //*px_lock.write().unwrap() = 0;
                         (*lb_lock.write().unwrap()).clear();
                         frame.request_repaint();
 
@@ -216,16 +320,14 @@ impl eframe::App for MyApp {
                      self.status = "Done!".to_owned();*/
                  }
             
-                 //egui::ComboBox::from_label("")
-                 /*.selected_text(testlist[self.selected_test].0.to_owned())
-                 .show_ui(ui, |ui| {
-
-                     for (i, t) in testlist.iter().enumerate() {
-                         ui.selectable_value(&mut self.selected_test, i, t.0.to_owned());
-                     }
-
-                 }
-                )*/;
+                
+                egui::ComboBox::from_label("")
+                    .selected_text(self.product_list[self.selected_product].desc.clone())
+                    .show_ui(ui, |ui| {
+                        for (i, t) in self.product_list.iter().enumerate() {
+                            ui.selectable_value(&mut self.selected_product, i, t.desc.clone());
+                        }
+                });
             });
 
             ui.separator();
@@ -249,8 +351,48 @@ impl eframe::App for MyApp {
                     }
                 }
 
-                if ui.button("Load").clicked() {
+                if ui.button("Load").clicked() && !self.loading {
+                    let input_path = self.product_list[self.selected_product].path.clone();
 
+                    let start_dt =
+                        chrono::TimeZone::from_local_datetime(&Local, 
+                        &NaiveDateTime::new(self.date_start, self.time_start))
+                        .unwrap();
+
+                    let end_dt = {
+                        if self.time_end_use {
+                            chrono::TimeZone::from_local_datetime(&Local, 
+                                &NaiveDateTime::new(self.date_end, self.time_end))
+                                .unwrap()
+                        } else {
+                            chrono::Local::now()
+                        }
+                    };
+
+                    self.loading = true;
+                    //self.mode = AppMode::None;
+                    self.hourly_stats.clear();
+                    self.selected_test = 0;
+                    *self.progress_x.write().unwrap() = 0;
+                    *self.progress_m.write().unwrap() = 1;
+
+                    let lb_lock = self.log_master.clone();
+                    let pm_lock = self.progress_m.clone();
+                    let px_lock = self.progress_x.clone();
+                    let frame = ctx.clone();
+
+                    thread::spawn(move || {
+                        let p = Path::new(&input_path);
+
+                        *pm_lock.write().unwrap() = count_logs_in_path_t(p, start_dt, end_dt).unwrap();
+                        (*lb_lock.write().unwrap()).clear();
+                        frame.request_repaint();
+
+                        read_logs_in_path_t(lb_lock.clone(), p, px_lock, frame, start_dt, end_dt).expect("Failed to load the logs!");
+
+                        (*lb_lock.write().unwrap()).update();
+                        (*lb_lock.write().unwrap()).get_failures();
+                    });
                 }
             });
 
@@ -502,9 +644,73 @@ impl eframe::App for MyApp {
                         }
                     );
 
+                    if self.selected_test != self.selected_test_tmp {
+                        println!("INFO: Loading results for test nbr {}!",self.selected_test);
+                        self.selected_test_results = lfh.get_stats_for_test(self.selected_test);
+                        if self.selected_test_results.1.is_empty() {
+                            println!("\tERR: Loading failed!");
+                            self.selected_test = self.selected_test_tmp;
+                        } else {
+                            println!("\tINFO: Loading succefull!");
+                            self.selected_test_tmp = self.selected_test;
+                        }
+                    }
                     // Insert plot here
 
+                    let ppoints: PlotPoints = self.selected_test_results.1.iter().map(|r| {
+                        [r.0 as f64, r.2.1 as f64]
+                    }).collect();
 
+                    //Lim2 (f32,f32),     // UL - LL
+                    //Lim3 (f32,f32,f32)  // Nom - UL - LL
+                    let upper_limit_p: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
+                        if let TLimit::Lim3(_,x ,_ ) = r.3 {
+                            Some([r.0 as f64, x as f64])
+                        } else if let TLimit::Lim2(x ,_ ) = r.3 {
+                            Some([r.0 as f64, x as f64])
+                        } else {
+                            None
+                        }
+                    }).collect();
+
+                    let lower_limit_p: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
+                        if let TLimit::Lim3(_,_ ,x ) = r.3 {
+                            Some([r.0 as f64, x as f64])
+                        } else if let TLimit::Lim2(_ ,x ) = r.3 {
+                            Some([r.0 as f64, x as f64])
+                        } else {
+                            None
+                        }
+                    }).collect();
+
+                    let points = egui_plot::Points::new(ppoints)
+                        .highlight(true)
+                        .color(Color32::BLUE)
+                        .name(testlist[self.selected_test].0.to_owned());
+
+                    let upper_limit = Line::new(upper_limit_p)
+                        .color(Color32::RED)
+                        .name("MAX");
+
+                    let lower_limit = Line::new(lower_limit_p)
+                        .color(Color32::RED)
+                        .name("MIN");
+
+                    Plot::new("Test results")
+                        .auto_bounds_x()
+                        .auto_bounds_y()
+                        .legend(
+                            egui_plot::Legend {
+                                text_style: egui::TextStyle::Monospace,
+                                background_alpha: 0.5,
+                                position: egui_plot::Corner::RightBottom
+                            }
+                        )
+                        .show(ui, |plot_ui| {
+                            plot_ui.points(points);
+                            plot_ui.line(upper_limit);
+                            plot_ui.line(lower_limit);
+                        });
                 }
             }
 
@@ -564,16 +770,3 @@ impl eframe::App for MyApp {
 }
 
 
-// Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
-fn u64_to_time(mut x: u64) -> String {
-    let y = x/u64::pow(10, 6);
-    x = x % u64::pow(10, 6);
-
-    let m = x/u64::pow(10, 4);
-    x = x % u64::pow(10, 4);
-
-    let d = x/u64::pow(10, 2);
-    x = x % u64::pow(10, 2);
-
-    format!("{0}.{1}.{2} {3}:00 - {3}:59", y, m, d, x)
-}

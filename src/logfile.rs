@@ -10,6 +10,8 @@ use std::ffi::OsString;
 use std::ops::AddAssign;
 use std::fs;
 use std::path::Path;
+
+use chrono::NaiveDateTime;
 //use umya_spreadsheet::*;
 
 fn str_to_result(s: &str) -> bool {
@@ -32,9 +34,19 @@ fn strip_index(s: &str) -> &str {
     chars.as_str()
 }
 
+fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (String,usize) {
+    let name = format!("{}{}",base,counter);
 
+    for t in tests {
+        if t.name == name {
+            return get_next_free_name(tests, base, counter+1);
+        }
+    }
 
-type TResult = (bool, f32);
+    (name,counter+1)
+}
+
+pub type TResult = (BResult, f32);
 type TList  = (String, TType);
 
 // OK - NOK
@@ -60,7 +72,7 @@ pub enum TLimit {
     Lim3 (f32,f32,f32)  // Nom - UL - LL
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum TType {
     Pin,
     Shorts,
@@ -143,6 +155,16 @@ impl From<bool> for BResult {
     }
 }
 
+impl From<&str> for BResult {
+    fn from(value: &str) -> Self {
+        if matches!(value, "0" | "00") {
+            return BResult::Pass
+        }
+
+        BResult::Fail
+    }
+}
+
 pub struct FailureList {
     pub test_id: usize,
     pub name: String,
@@ -150,6 +172,8 @@ pub struct FailureList {
     //after_rt: usize,
     pub by_index: Vec<usize>
 }
+
+#[derive(Clone)]
 struct Test {
     name: String,
     ttype: TType,
@@ -193,7 +217,7 @@ impl LogFile {
             Test { 
             name:   "pins".to_owned(),
             ttype:  TType::Pin,
-            result: (true,0.0),
+            result: (BResult::Unknown,0.0),
             limits: TLimit::None }
         );
         //
@@ -232,16 +256,16 @@ impl LogFile {
                         Test { 
                         name:   "pins".to_owned(),
                         ttype:  TType::Pin,
-                        result: (true,0.0),
+                        result: (BResult::Unknown,0.0),
                         limits: TLimit::None }
                     );
                     //
                 }
                 "{@PF" => {
-                    tests[0].result.0 = str_to_result(parts.nth(2).unwrap());
+                    tests[0].result.0 = parts.nth(2).unwrap().into();
                 }
                 "{@TS" => {
-                    let tresult = str_to_result(parts.next().unwrap());
+                    let tresult = parts.next().unwrap().into();
                                 
                     let test = Test{    
                         name: strip_index(parts.last().unwrap()).to_string(),
@@ -259,7 +283,7 @@ impl LogFile {
                     println!("ERR: Lone testjet test found! This is not implemented!!")
                 }
                 "{@D-T" => {
-                    let tresult = str_to_result(parts.next().unwrap());
+                    let tresult = parts.next().unwrap().into();
                                 
                     let test = Test{    
                         name: strip_index(parts.last().unwrap()).to_string(),
@@ -275,7 +299,7 @@ impl LogFile {
                     let test = Test {
                         name: strip_index(parts.next().unwrap()).to_string(),
                         ttype: TType::BoundaryS,
-                        result: (str_to_result(parts.next().unwrap()),0.0),
+                        result: (parts.next().unwrap().into(),0.0),
                         limits: TLimit::None
                     };
 
@@ -315,7 +339,7 @@ impl LogFile {
                                 _tests.push(_test);*/
                             }
                             TType::Testjet => {
-                                let tresult2 = str_to_result(parts.next().unwrap());
+                                let tresult2 = parts.next().unwrap().into();
                                 
                                 let test = Test{    
                                     name: format!("{}:{}",name,strip_index(parts.last().unwrap())),
@@ -329,34 +353,39 @@ impl LogFile {
                                 _ = lines.next();
                             }
                             TType::Digital => {
-                                let tresult2 = str_to_result(parts.next().unwrap());
+                                let tresult2 = parts.next().unwrap().into();
+                                let name2: String;
+
+                                (name2, dt_counter) = get_next_free_name(&tests, format!("{}:digital_",strip_index(parts.last().unwrap())), dt_counter);
                                 
                                 let test = Test{    
-                                    name: format!("{}:digital_{}",strip_index(parts.last().unwrap()), dt_counter),
+                                    name: name2,
                                     ttype,
                                     result: (tresult2,0.0),
                                     limits: TLimit::None
                                 };
 
                                 tests.push(test);
-                                dt_counter += 1;
 
                                 _ = lines.next();
                             }
                             TType::BoundaryS => {
+                                let name2: String;
+
+                                (name2, bs_counter) = get_next_free_name(&tests, format!("{}:boundary_",strip_index(parts.next().unwrap())), bs_counter);
+
                                 let test = Test {
-                                    name: format!("{}:boundary_{}",strip_index(parts.next().unwrap()),bs_counter),
+                                    name: name2,
                                     ttype: TType::BoundaryS,
-                                    result: (str_to_result(parts.next().unwrap()),0.0),
+                                    result: (parts.next().unwrap().into(),0.0),
                                     limits: TLimit::None
                                 };
             
-                                tests.push(test);
-                                bs_counter += 1;
+                                tests.push(test);                                
                             }
                             _ => {
                                 let mut name2 = name.clone();
-                                let tresult2 = str_to_result(parts.next().unwrap());
+                                let tresult2 = parts.next().unwrap().into();
                                 let measurement = parts.next().unwrap().parse::<f32>().unwrap();
 
                                 if let Some(x) = parts.next() {
@@ -426,6 +455,91 @@ impl LogFile {
             tests
         }
     }
+
+    fn compare(&self, ordering: &Vec<TList>) -> bool {
+        for (o,t) in ordering.iter().zip(self.tests.iter())
+        {
+            if o.0 != t.name {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn order(&mut self, ordering: &Vec<TList>) -> bool {
+        // Check if lengths match
+        if ordering.len() < self.tests.len() {
+            println!("\t\tTest list length mismatch!");
+            return false
+        }
+
+        // Gather mismatching indexes
+        let mut indexes: Vec<usize> = Vec::new();
+        let mut list_tmp: Vec<Test> = Vec::new();
+        for (i,(o,t)) in ordering.iter().zip(self.tests.iter()).enumerate()
+        {
+            if o.0 != t.name {
+                println!("\t\t\t {} =/= {}", o.0, t.name);
+                indexes.push(i);
+                list_tmp.push(t.clone());
+            }
+        }
+
+        println!("\t\tFound {} mismatching entries. {:?}" , indexes.len(), indexes);
+
+        // Let's check if they even have a pair.
+        'has_a_pair: for (i2, tmp) in list_tmp.iter_mut().enumerate() 
+        {
+            for (i, t) in ordering.iter().enumerate() {
+                if tmp.name == t.0 {
+                    // If it exists, but it isn't part of the indexes, then discard it.
+                    // This *should* only affect "discharge" type tests. Which should be at the very end of the list.
+                    if !indexes.contains(&i) {
+                        println!("\t\tW: {}: {} has a pair (nbr {}) in the order, but it isn't present in the gathered indexes!", i2, tmp.name, i);
+                        println!("\t\tW: Removing entry nbr {} from the testlist.", indexes[i2]);
+                        self.tests.remove(indexes[i2]);
+                    }
+
+                    continue 'has_a_pair;
+                }
+            }
+
+            println!("\t\tW: {}: {} has no pair in the order!", i2, tmp.name);
+            
+            // EXPERIMENTAL !!! 
+            // This is a fix to a "bug" with Boundary Scan BLOCKS. 
+            // If a block contains only BS measurements, in case of failure, it will only apear in the logfile as a single BS test.
+            // This creates a incompatibility between the two. We can "fix" this by adding a index to the testname.
+            let problematic_test = &mut self.tests[indexes[i2]];
+            if problematic_test.ttype == TType::BoundaryS && problematic_test.result.0 == BResult::Fail{
+                println!("\t\t\tIt's a failing BoundaryScan test, adding index to it's name.");
+                problematic_test.name += ":boundary_1";
+                tmp.name += ":boundary_1";
+                println!("\t\t\tNew name: {}", problematic_test.name);
+            }
+            // EXPERIMENTAL !!!
+        }
+
+        // Copy the tmp list back to the testlist, with the indexes corrected.
+        'fori: for i in &indexes
+        {
+            for tmp in list_tmp.iter()
+            {
+                if ordering[*i].0 == tmp.name {
+                    self.tests[*i] = tmp.clone();
+                    continue 'fori;
+                }
+            }
+
+            println!("\t\tW: No match found for {}!!", ordering[*i].0);
+        }
+
+        println!("\t\tRe-ordering done!");
+
+        self.compare(ordering) // could return "true" once I validated the fn
+    }
+
 }
 
 struct Log {
@@ -630,7 +744,7 @@ impl MultiBoard {
                 }
 
                 for (i, r) in l.results.iter().enumerate() {
-                    if !r.0 {
+                    if r.0 == BResult::Fail {
                         failures.push((i,b.index));
                     }
                 }
@@ -638,6 +752,29 @@ impl MultiBoard {
         }
 
         failures
+    }
+
+    // Get the measurments for test "testid". Vec<(time, index, result, limits)>
+    fn get_stats_for_test(&self, testid: usize) -> Vec<(u64, usize, TResult, TLimit)> {
+        let mut resultlist: Vec<(u64, usize, TResult, TLimit)> = Vec::new();
+
+        for sb in &self.boards  {
+            let index = sb.index;
+            for l in &sb.logs {
+                let time = l.time_s;
+                if let Some(result) = l.results.get(testid) {
+                    resultlist.push((
+                        time,
+                        index,
+                        *result,
+                        l.limits[testid]
+                    ))
+                }
+            }
+        }
+
+
+        resultlist
     }
 }
 
@@ -678,7 +815,7 @@ impl LogFileHandler {
         self.push(LogFile::load(p))
     }
 
-    pub fn push(&mut self, log: LogFile) -> bool {
+    pub fn push(&mut self, mut log: LogFile) -> bool {
         if self.product_id.is_empty() {
             println!("\tINFO: Initializing as {}", log.product_id);
             self.product_id = log.product_id.to_owned();
@@ -700,16 +837,13 @@ impl LogFileHandler {
             }
 
             // Check if the testlist matches
-            // WIP
-            //  I will have to latter add support for changes in the test order.
-            //  Current itteration assumes the logs come from the same ICT, 
-            //  and no major chages where made between tests!
-            // WIP
-            for (t1, t2) in self.testlist.iter().zip(log.tests.iter()) {
-                if t1.0 != t2.name {
-                    println!("\tERR: Test mismatch detected! {} =/= {} \n\t\t {:?}", t1.0, t2.name,log.source);
-                    return false
+            if !log.compare(&self.testlist) {
+                println!("\tW: Test order mismatch detected! Atempting re-ordering!\n\t\t{:?}", log.source);
+                if !log.order(&self.testlist) {
+                    println!("\t ERR: Re-ordering FAILED! Discrading the log.");
+                    return false;
                 }
+                println!("\tINFO: Re orering succesfull!");
             }
 
             // If the new one has a longer testlist, then extend the current one.
@@ -742,7 +876,7 @@ impl LogFileHandler {
         println!("INFO: Update started...");
         let mut mbres: Vec<(Yield,Yield,Yield)> = Vec::new();
 
-        self.pp_multiboard = 0;
+        self.pp_multiboard = 1;
         self.mb_first_yield  = Yield(0,0);
         self.mb_final_yield  = Yield(0,0);
         self.mb_total_yield  = Yield(0,0);
@@ -808,7 +942,6 @@ impl LogFileHandler {
     pub fn get_mb_yields(&self) -> [Yield; 3] {
         [self.mb_first_yield, self.mb_final_yield, self.mb_total_yield]
     }
-
 
     pub fn get_testlist(&self) -> &Vec<TList> {
         &self.testlist
@@ -886,10 +1019,42 @@ impl LogFileHandler {
             }
         }
 
+        ret.sort_by_key(|k| k.0);
+
         for r in &mut ret {
             r.3.sort_by_key(|k| k.1);
         }
 
         ret
+    }
+
+    // Get the measurments for test "testid". (TType,Vec<(time, index, result, limits)>) The Vec is sorted by time.
+    // Could pass the DMC too
+    pub fn get_stats_for_test(&self, testid: usize) -> (TType,Vec<(u64, usize, TResult, TLimit)>) {
+        let mut resultlist: Vec<(u64, usize, TResult, TLimit)> = Vec::new();
+
+        if testid > self.testlist.len() {
+            println!("ERR: Test ID is out of bounds! {} > {}", testid, self.testlist.len());
+            return (TType::Unknown,resultlist);
+        }
+        
+        for mb in &self.multiboards  {
+            resultlist.append(&mut mb.get_stats_for_test(testid));
+        }
+
+        resultlist.sort_by_key(|k| k.0);
+
+        // let the time of resultlist[0] be t0, and each afterwards be tn-t0 in seconds.
+        if let Some(&(t0,_,_,_)) = resultlist.first() {
+            let nt0 = NaiveDateTime::parse_from_str(&format!("{t0}"),"%y%m%d%H%M%S").unwrap();
+
+            for res in resultlist.iter_mut() {
+                let ntn = NaiveDateTime::parse_from_str(&format!("{}",res.0),"%y%m%d%H%M%S").unwrap();
+                //println!("{:?} - {:?}", ntn, nt0);
+                res.0 = (ntn-nt0).num_seconds() as u64;
+            }
+        }
+
+        (self.testlist[testid].1,resultlist)
     }
 }
