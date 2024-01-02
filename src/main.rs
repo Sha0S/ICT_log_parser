@@ -4,7 +4,7 @@
 use eframe::egui;
 use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
 use egui_extras::{TableBuilder, Column};
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 
 use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime};
 
@@ -12,6 +12,7 @@ use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime};
 
 use logfile::{LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
 use std::fs;
+use std::ops::RangeInclusive;
 use std::path::Path;
 
 use std::sync::{Arc, RwLock};
@@ -673,6 +674,14 @@ impl eframe::App for MyApp {
                         }
                     }).collect();
 
+                    let nominal_p: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
+                        if let TLimit::Lim3(x,_ ,_ ) = r.3 {
+                            Some([r.0 as f64, x as f64])
+                        } else {
+                            None
+                        }
+                    }).collect();
+
                     let lower_limit_p: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
                         if let TLimit::Lim3(_,_ ,x ) = r.3 {
                             Some([r.0 as f64, x as f64])
@@ -692,6 +701,10 @@ impl eframe::App for MyApp {
                         .color(Color32::RED)
                         .name("MAX");
 
+                    let nominal = Line::new(nominal_p)
+                        .color(Color32::GREEN)
+                        .name("Nom");
+
                     let lower_limit = Line::new(lower_limit_p)
                         .color(Color32::RED)
                         .name("MIN");
@@ -702,13 +715,55 @@ impl eframe::App for MyApp {
                         .legend(
                             egui_plot::Legend {
                                 text_style: egui::TextStyle::Monospace,
-                                background_alpha: 0.5,
-                                position: egui_plot::Corner::RightBottom
+                                background_alpha: 0.25,
+                                position: egui_plot::Corner::LeftBottom
                             }
+                        )
+                        .custom_x_axes(
+                            vec![egui_plot::AxisHints::default()
+                            .formatter(x_formatter)
+                            .label("time")])
+                        .custom_y_axes(
+                            vec![egui_plot::AxisHints::default()
+                            .formatter(y_formatter)
+                            .label(
+                                match self.selected_test_results.0 {
+                                    TType::Capacitor => "F",
+                                    TType::Resistor => "Ω",
+                                    TType::Jumper => "Ω",
+                                    TType::Inductor => "H",
+                                    TType::Diode => "V",
+                                    TType::Zener => "V",
+                                    TType::Measurement => "V",
+                                    _ => "Result"
+                                })])
+                        .coordinates_formatter(
+                            egui_plot::Corner::RightTop, 
+                            egui_plot::CoordinatesFormatter::new(c_formater))
+                        .label_formatter(|name, value| {
+                            if !name.is_empty() {
+                                format!("{}: {:+1.4E}", name, value.y)
+                            } else {
+                                "".to_owned()
+                            }
+                        })
+                        .x_grid_spacer(
+                            uniform_grid_spacer(|x| {
+                                if x.base_step_size < 150.0 {
+                                    [3600.0*4.0, 3600.0, 900.0]
+                                } else if x.base_step_size < 600.0 {
+                                    [3600.0*8.0, 3600.0*4.0, 3600.0]
+                                } else if x.base_step_size < 2400.0 {
+                                    [3600.0*32.0, 3600.0*16.0, 3600.0*4.0]
+                                } else {
+                                    [3600.0*24.0*30.0, 3600.0*24.0*7.0, 3600.0*24.0]
+                                }
+                            })
                         )
                         .show(ui, |plot_ui| {
                             plot_ui.points(points);
                             plot_ui.line(upper_limit);
+                            plot_ui.line(nominal);
                             plot_ui.line(lower_limit);
                         });
                 }
@@ -770,3 +825,23 @@ impl eframe::App for MyApp {
 }
 
 
+// Formaters for the plot
+
+fn y_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
+    return format!("{tick:+1.1E}");
+}
+
+fn x_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
+    let h = tick / 3600.0;
+    let m = (tick % 3600.0) / 60.0;
+    let s = tick % 60.0;
+    return format!("{h:02.0}:{m:02.0}:{s:02.0}");
+}
+
+fn c_formater(point: &egui_plot::PlotPoint, _: &egui_plot::PlotBounds) -> String {
+    let h = point.x / 3600.0;
+    let m = (point.x % 3600.0) / 60.0;
+    let s = point.x % 60.0;
+
+    format!("x: {:+1.4E}\t t: {h:02.0}:{m:02.0}:{s:02.0}", point.y)
+}
