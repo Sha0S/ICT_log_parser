@@ -1,5 +1,8 @@
 # Keysight ICT Logfile parser
 
+![image](https://github.com/Sha0S/ICT_log_parser/assets/155308506/2628c041-becc-4539-938a-0a272e2d5a56)
+
+
 A simple tool for reading and processing the text logfiles created by Keysights ICTs. (Specifically the i3700 series.)
 
 It was made to replace one of my older Python scripts, which processed the logfiles into a spreadsheet.
