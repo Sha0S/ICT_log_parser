@@ -9,10 +9,10 @@ ToDo:
 use std::ffi::OsString;
 use std::ops::AddAssign;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::NaiveDateTime;
-//use umya_spreadsheet::*;
+use umya_spreadsheet::{self, Worksheet};
 
 fn str_to_result(s: &str) -> bool {
     matches!(s, "0" | "00")
@@ -44,6 +44,46 @@ fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (Strin
     }
 
     (name,counter+1)
+}
+
+// YYMMDDhhmmss => YY.MM.DD. hh:mm:ss
+fn u64_to_string(mut x: u64) -> String {
+    let YY = x/u64::pow(10, 10);
+    x = x % u64::pow(10, 10);
+
+    let MM = x/u64::pow(10, 8);
+    x = x % u64::pow(10, 8);
+
+    let DD = x/u64::pow(10, 6);
+    x = x % u64::pow(10, 6);
+
+    let hh = x/u64::pow(10, 4);
+    x = x % u64::pow(10, 4);
+
+    let mm = x/u64::pow(10, 2);
+    x = x % u64::pow(10, 2);
+
+    format!("{:02.0}.{:02.0}.{:02.0} {:02.0}:{:02.0}:{:02.0}", YY, MM, DD, hh, mm, x)
+}
+
+#[derive(PartialEq)]
+pub enum ExportMode {
+    All,
+    FailuresOnly,
+    Manual
+}
+
+pub struct ExportSettings {
+    pub vertical: bool,
+    pub only_failed_panels: bool,
+    pub mode: ExportMode,
+    pub list: String,
+}
+
+impl ExportSettings {
+    pub fn default() -> Self {
+        Self { vertical: false, only_failed_panels: false, mode: ExportMode::All, list: String::new() }
+    }
 }
 
 pub type TResult = (BResult, f32);
@@ -162,6 +202,16 @@ impl From<&str> for BResult {
         }
 
         BResult::Fail
+    }
+}
+
+impl BResult {
+    pub fn print(&self) -> String {
+        if matches!(self, BResult::Pass) {
+            return String::from("Pass")
+        }
+
+        String::from("Fail")
     }
 }
 
@@ -342,7 +392,7 @@ impl LogFile {
                                 let tresult2 = parts.next().unwrap().into();
                                 
                                 let test = Test{    
-                                    name: format!("{}:{}",name,strip_index(parts.last().unwrap())),
+                                    name: format!("{}%{}",name,strip_index(parts.last().unwrap())),
                                     ttype,
                                     result: (tresult2,0.0),
                                     limits: TLimit::None
@@ -356,7 +406,7 @@ impl LogFile {
                                 let tresult2 = parts.next().unwrap().into();
                                 let name2: String;
 
-                                (name2, dt_counter) = get_next_free_name(&tests, format!("{}:digital_",strip_index(parts.last().unwrap())), dt_counter);
+                                (name2, dt_counter) = get_next_free_name(&tests, format!("{}%digital_",strip_index(parts.last().unwrap())), dt_counter);
                                 
                                 let test = Test{    
                                     name: name2,
@@ -372,7 +422,7 @@ impl LogFile {
                             TType::BoundaryS => {
                                 let name2: String;
 
-                                (name2, bs_counter) = get_next_free_name(&tests, format!("{}:boundary_",strip_index(parts.next().unwrap())), bs_counter);
+                                (name2, bs_counter) = get_next_free_name(&tests, format!("{}%boundary_",strip_index(parts.next().unwrap())), bs_counter);
 
                                 let test = Test {
                                     name: name2,
@@ -514,8 +564,8 @@ impl LogFile {
             let problematic_test = &mut self.tests[indexes[i2]];
             if problematic_test.ttype == TType::BoundaryS && problematic_test.result.0 == BResult::Fail{
                 println!("\t\t\tIt's a failing BoundaryScan test, adding index to it's name.");
-                problematic_test.name += ":boundary_1";
-                tmp.name += ":boundary_1";
+                problematic_test.name += "%boundary_1";
+                tmp.name += "%boundary_1";
                 println!("\t\t\tNew name: {}", problematic_test.name);
             }
             // EXPERIMENTAL !!!
@@ -597,6 +647,25 @@ impl Board {
         }
 
         true
+    }
+
+    fn export_to_col(&self, sheet: &mut Worksheet, mut c: u32) -> u32 {
+        sheet.get_cell_mut((c, 1)).set_value(self.DMC.clone());
+        sheet.get_cell_mut((c, 2)).set_value_number(self.index as u32);
+
+        for l in &self.logs {
+            sheet.get_cell_mut((c, 3)).set_value(l.result.print());
+            sheet.get_cell_mut((c+1, 3)).set_value(u64_to_string(l.time_s));
+
+            for (i,t) in l.results.iter().enumerate() {
+                sheet.get_cell_mut((c, 4+(i as u32))).set_value(t.0.print());
+                sheet.get_cell_mut((c+1, 4+(i as u32))).set_value_number(t.1);
+            }
+
+            c += 2; 
+        }
+
+        c
     }
 }
 
@@ -1056,5 +1125,93 @@ impl LogFileHandler {
         }
 
         (self.testlist[testid].1,resultlist)
+    }
+
+    fn get_first_ok_log(&self) -> Option<&Log> {
+        for mb in &self.multiboards {
+            for b in &mb.boards {
+                for l in &b.logs {
+                    if l.result == BResult::Pass {
+                        return Some(l)
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn export(&self, path: PathBuf, settings: &ExportSettings) {
+        let mut book = umya_spreadsheet::new_file();
+        let mut sheet = book.get_sheet_mut(&0).unwrap();
+
+        if settings.vertical {
+            /* 
+                WIP
+            */
+        }   else {
+            sheet.get_cell_mut("A1").set_value(self.product_id.clone());
+            sheet.get_cell_mut("A3").set_value("Test name");
+            sheet.get_cell_mut("B3").set_value("Test type");
+            sheet.get_cell_mut("D2").set_value("Test limits");
+            sheet.get_cell_mut("C3").set_value("MIN");
+            sheet.get_cell_mut("D3").set_value("Nom");
+            sheet.get_cell_mut("E3").set_value("MAX");
+
+            if settings.mode == ExportMode::All {
+                for (i, t) in self.testlist.iter().enumerate() {
+                    let l: u32 = (i + 4).try_into().unwrap(); 
+                    sheet.get_cell_mut((1, l)).set_value(t.0.clone());
+                    sheet.get_cell_mut((2, l)).set_value(t.1.print());
+                }
+
+                match self.get_first_ok_log() {
+                    Some(l) => {
+                        for (i,t) in l.limits.iter().enumerate() {
+                            let l: u32 = (i + 4).try_into().unwrap();
+                            // Lim2 (f32,f32),     // UL - LL
+                            // Lim3 (f32,f32,f32)  // Nom - UL - LL
+                            match t {
+                                TLimit::Lim3(nom, ul, ll) => {
+                                    sheet.get_cell_mut((3, l)).set_value_number(*ll);
+                                    sheet.get_cell_mut((4, l)).set_value_number(*nom);
+                                    sheet.get_cell_mut((5, l)).set_value_number(*ul);
+                                }
+                                TLimit::Lim2( ul, ll) => {
+                                    sheet.get_cell_mut((3, l)).set_value_number(*ll);
+                                    sheet.get_cell_mut((5, l)).set_value_number(*ul);
+                                }
+                                TLimit::None => {}
+                            }
+                        }
+                    }
+                    None => {
+                        /* 
+                            WIP
+                        */                        
+                        println!("ERR: No passing log found! WIP! Aborting!");
+                    }
+                };
+
+                if settings.only_failed_panels {
+                    /* 
+                        WIP
+                    */     
+                } else {
+                    let mut c: u32 = 6; 
+                    for mb in &self.multiboards{
+                        for b in &mb.boards {
+                            c = b.export_to_col(sheet, c);
+                        }
+                    }
+                }
+            } else {
+                /* 
+                    WIP
+                */
+            }
+        }
+
+        let _ = umya_spreadsheet::writer::xlsx::write(&book, path);
     }
 }

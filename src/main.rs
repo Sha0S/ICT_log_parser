@@ -10,7 +10,7 @@ use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime};
 
 //use egui_dropdown::DropDownBox;
 
-use logfile::{LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
+use logfile::{ExportMode, ExportSettings,LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
 use std::fs;
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -111,7 +111,7 @@ fn read_logs_in_path_t(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<Rw
 }
 
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
-fn u64_to_time(mut x: u64) -> String {
+fn u64_to_timeframe(mut x: u64) -> String {
     let y = x/u64::pow(10, 6);
     x = x % u64::pow(10, 6);
 
@@ -177,7 +177,8 @@ fn main() -> Result<(), eframe::Error> {
 enum AppMode {
     None,
     Plot,
-    Hourly
+    Hourly,
+    Export
 }
 
 //#[derive(Default)]
@@ -212,6 +213,8 @@ struct MyApp {
     selected_test: usize,
     selected_test_tmp: usize,
     selected_test_results: (TType,Vec<(u64, usize, TResult, TLimit)>),
+
+    export_settings: ExportSettings,
 }
 
 impl Default for MyApp {
@@ -249,6 +252,8 @@ impl Default for MyApp {
             selected_test: 0,
             selected_test_tmp: 0,
             selected_test_results: (TType::Unknown,Vec::new()),
+
+            export_settings: ExportSettings::default(),
         }
     }
 }
@@ -273,12 +278,13 @@ impl eframe::App for MyApp {
         });
 
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
+            ui.set_min_width(270.0);
+
 
             // "Menu" bar
-
             ui.horizontal(|ui| {
                 ui.set_enabled(!self.loading);
-                ui.set_min_width(270.0);
+                //ui.set_min_width(270.0);
 
                 if ui.button("📁").clicked() && !self.loading {
                     let mut input_path = String::new();
@@ -312,16 +318,6 @@ impl eframe::App for MyApp {
                     });
                 }
                 
-                if ui.button("💾").clicked() {
-                    /*  let path_out = Path::new(&mut self.output_path);
-                     let lb = self.log_buffer.read().unwrap();
-                     for log in &mut *lb {
-                         log.save(path_out);
-                     }
-                     self.status = "Done!".to_owned();*/
-                 }
-            
-                
                 egui::ComboBox::from_label("")
                     .selected_text(self.product_list[self.selected_product].desc.clone())
                     .show_ui(ui, |ui| {
@@ -339,7 +335,7 @@ impl eframe::App for MyApp {
 
                 ui.add(egui_extras::DatePickerButton::new(&mut self.date_start).id_source("Starting time"));
 
-                let response = ui.add(egui::TextEdit::singleline(&mut self.time_start_string).desired_width(100.0));
+                let response = ui.add(egui::TextEdit::singleline(&mut self.time_start_string).desired_width(70.0));
                 if response.lost_focus() {
                     match NaiveTime::parse_from_str( self.time_start_string.as_str(),"%H:%M:%S") {
                         Ok(new_t) => {
@@ -351,6 +347,63 @@ impl eframe::App for MyApp {
                         }
                     }
                 }
+
+                if ui.button("Shift").clicked() {
+                    self.date_start = chrono::Local::now().date_naive();
+                    self.date_end = chrono::Local::now().date_naive();
+
+                    let time_now = chrono::Local::now().naive_local();
+                    let hours_now = time_now.hour();
+                    if 6 <= hours_now && hours_now < 14 {
+                        self.time_start = chrono::NaiveTime::from_hms_opt(6,0,0).unwrap();
+                        self.time_end = chrono::NaiveTime::from_hms_opt(13,59,59).unwrap();
+                    } else if 14 <= hours_now && hours_now < 22  {
+                        self.time_start = chrono::NaiveTime::from_hms_opt(14,0,0).unwrap();
+                        self.time_end = chrono::NaiveTime::from_hms_opt(21,59,59).unwrap();
+                    } else {
+                        if hours_now < 6 {
+                            self.date_start = self.date_start.pred_opt().unwrap(); }
+                            self.time_start = chrono::NaiveTime::from_hms_opt(22,0,0).unwrap();
+                            self.time_end = chrono::NaiveTime::from_hms_opt(5,59,59).unwrap();
+                    }
+
+                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
+                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                }
+
+                if ui.button("24h").clicked() {
+                    self.date_start = chrono::Local::now().date_naive().pred_opt().unwrap();
+                    self.time_start = chrono::Local::now().time();
+                    self.date_end = chrono::Local::now().date_naive();
+                    self.time_end = chrono::Local::now().time();
+
+                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
+                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
+                    ui.set_enabled(self.time_end_use);
+
+                    ui.add(egui_extras::DatePickerButton::new(&mut self.date_end).id_source("Ending time"));
+
+                    let response = ui.add(egui::TextEdit::singleline(&mut self.time_end_string).desired_width(70.0));
+                    if response.lost_focus() {
+                        match NaiveTime::parse_from_str( self.time_end_string.as_str(),"%H:%M:%S") {
+                            Ok(new_t) => {
+                                self.time_end = new_t;
+                            }
+                            Err(_) => {
+                                println!("ERR: Failed to pares time string, reverting!");
+                                self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
+                            }
+                        }
+                    }
+                });
+
+
+                ui.checkbox(&mut self.time_end_use, "");
 
                 if ui.button("Load").clicked() && !self.loading {
                     let input_path = self.product_list[self.selected_product].path.clone();
@@ -394,69 +447,6 @@ impl eframe::App for MyApp {
                         (*lb_lock.write().unwrap()).update();
                         (*lb_lock.write().unwrap()).get_failures();
                     });
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.horizontal(|ui| {
-                    ui.set_enabled(self.time_end_use);
-
-                    ui.add(egui_extras::DatePickerButton::new(&mut self.date_end).id_source("Ending time"));
-
-                    let response = ui.add(egui::TextEdit::singleline(&mut self.time_end_string).desired_width(100.0));
-                    if response.lost_focus() {
-                        match NaiveTime::parse_from_str( self.time_end_string.as_str(),"%H:%M:%S") {
-                            Ok(new_t) => {
-                                self.time_end = new_t;
-                            }
-                            Err(_) => {
-                                println!("ERR: Failed to pares time string, reverting!");
-                                self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
-                            }
-                        }
-                    }
-                });
-
-
-                ui.checkbox(&mut self.time_end_use, "");
-            });
-
-            ui.separator();
-
-            // Shortcuts for common data and time settings:
-
-            ui.horizontal(|ui| { 
-                if ui.button("This shift").clicked() {
-                    self.date_start = chrono::Local::now().date_naive();
-                    self.date_end = chrono::Local::now().date_naive();
-
-                    let time_now = chrono::Local::now().naive_local();
-                    let hours_now = time_now.hour();
-                    if 6 <= hours_now && hours_now < 14 {
-                        self.time_start = chrono::NaiveTime::from_hms_opt(6,0,0).unwrap();
-                        self.time_end = chrono::NaiveTime::from_hms_opt(13,59,59).unwrap();
-                    } else if 14 <= hours_now && hours_now < 22  {
-                        self.time_start = chrono::NaiveTime::from_hms_opt(14,0,0).unwrap();
-                        self.time_end = chrono::NaiveTime::from_hms_opt(21,59,59).unwrap();
-                    } else {
-                        if hours_now < 6 {
-                            self.date_start = self.date_start.pred_opt().unwrap(); }
-                            self.time_start = chrono::NaiveTime::from_hms_opt(22,0,0).unwrap();
-                            self.time_end = chrono::NaiveTime::from_hms_opt(5,59,59).unwrap();
-                    }
-
-                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
-                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
-                }
-
-                if ui.button("Last 24h").clicked() {
-                    self.date_start = chrono::Local::now().date_naive().pred_opt().unwrap();
-                    self.time_start = chrono::Local::now().time();
-                    self.date_end = chrono::Local::now().date_naive();
-                    self.time_end = chrono::Local::now().time();
-
-                    self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
-                    self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
                 }
             });
 
@@ -618,12 +608,18 @@ impl eframe::App for MyApp {
             ui.set_enabled(!self.loading);
 
             ui.horizontal(|ui| {
-                if ui.button("Plot").clicked() {
-                    self.mode = AppMode::Plot;
+                if ui.button("💾 Export").clicked() {
+                    self.mode = AppMode::Export;
                 }
-                if ui.button("Órai").clicked() {
+
+                if ui.button("⌚ Órai").clicked() {
                     self.mode = AppMode::Hourly;
                 }
+
+                if ui.button("📊 Plot").clicked() {
+                    self.mode = AppMode::Plot;
+                }
+
             });
 
             ui.separator();
@@ -644,6 +640,8 @@ impl eframe::App for MyApp {
 
                         }
                     );
+
+                    ui.separator();
 
                     if self.selected_test != self.selected_test_tmp {
                         println!("INFO: Loading results for test nbr {}!",self.selected_test);
@@ -795,7 +793,7 @@ impl eframe::App for MyApp {
                         for hour in &self.hourly_stats {
                             body.row(20.0, |mut row| {
                                 row.col(|ui| {
-                                    ui.label(u64_to_time(hour.0));
+                                    ui.label(u64_to_timeframe(hour.0));
                                 });
                                 row.col(|ui| {
                                     ui.label(format!("{}", hour.1));
@@ -819,11 +817,37 @@ impl eframe::App for MyApp {
                 }
             }
             
-        });
+            if self.mode == AppMode::Export {
+                ui.heading("Settings:");
+                ui.checkbox(&mut self.export_settings.vertical, "Vertical orientation");
+                ui.checkbox(&mut self.export_settings.only_failed_panels, "Export only failed PCBs");
+                ui.horizontal(|ui| {
+                    ui.monospace("Export tests:");
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::All, "All");
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::FailuresOnly, "Failed tests only");
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::Manual, "Manual");
+                });
 
+                if self.export_settings.mode == ExportMode::Manual {
+                    ui.monospace("Selected tests:");
+                    ui.text_edit_singleline(&mut self.export_settings.list);
+                    ui.monospace("Separate tests with a space. Example: \"c613 r412 v605%ON\"");
+                }
+
+                ui.separator();
+
+                if ui.button("> Save <").clicked() && !self.loading {
+                    if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("XLSX", &["xlsx"])
+                    .set_file_name("out.xlsx")
+                    .save_file() {
+                        self.log_master.read().unwrap().export(path, &self.export_settings);
+                    }
+                }
+            }
+        });
     }
 }
-
 
 // Formaters for the plot
 
