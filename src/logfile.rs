@@ -1,11 +1,6 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
 
-/*
-ToDo:
-- Implement Export functions
-*/
-
 use std::ffi::OsString;
 use std::ops::AddAssign;
 use std::fs;
@@ -685,6 +680,35 @@ impl Board {
 
         c
     }
+
+    fn export_to_line(&self, sheet: &mut Worksheet, mut l: u32, only_failure: bool, export_list: &Vec<usize>) -> u32 {
+        if only_failure && self.all_ok() { return l }
+
+        // Board values (DMC+index) only get printed once
+        sheet.get_cell_mut((1, l)).set_value(self.DMC.clone());
+        //sheet.get_cell_mut((c, 2)).set_value_number(self.index as u32);
+
+        for log in &self.logs {
+            if only_failure && log.result == BResult::Pass { continue; }
+
+            // Log result and time of test
+            sheet.get_cell_mut((3, l)).set_value(log.result.print());
+            sheet.get_cell_mut((2, l)).set_value(u64_to_string(log.time_s));
+
+            // Print measurement results
+            for (i,t) in export_list.iter().enumerate() {
+                if let Some(res) = log.results.get(*t) {
+                    let c = i as u32 * 2 + 4;
+                    sheet.get_cell_mut((c  , l )).set_value(res.0.print());
+                    sheet.get_cell_mut((c+1, l )).set_value_number(res.1);
+                }
+                
+            }
+            l += 1; 
+        }
+
+        l
+    }
 }
 
 
@@ -1206,12 +1230,59 @@ impl LogFileHandler {
 
     pub fn export(&self, path: PathBuf, settings: &ExportSettings) {
         let mut book = umya_spreadsheet::new_file();
-        let mut sheet = book.get_sheet_mut(&0).unwrap();
+        let sheet = book.get_sheet_mut(&0).unwrap();
 
         if settings.vertical {
-            /* 
-                WIP
-            */
+            // Create header
+            sheet.get_cell_mut("A1").set_value(self.product_id.clone());
+            sheet.get_cell_mut("A3").set_value("DMC");
+            sheet.get_cell_mut("B3").set_value("Test time");
+            sheet.get_cell_mut("C3").set_value("Log result");
+            sheet.get_cell_mut("C1").set_value("Test name:");
+            sheet.get_cell_mut("C2").set_value("Test limits:");
+
+            // Generate list of teststeps to be exported
+            let export_list = self.get_export_list(settings);
+
+            // Print testlist
+            for (i, t) in export_list.iter().enumerate() {
+                let c: u32 = (i*2 + 4).try_into().unwrap();
+                sheet.get_cell_mut((c, 1)).set_value(self.testlist[*t].0.clone());
+                sheet.get_cell_mut((c+1, 1)).set_value(self.testlist[*t].1.print());
+
+                sheet.get_cell_mut((c, 3)).set_value("Result");
+                sheet.get_cell_mut((c+1, 3)).set_value("Value");
+            }
+            
+            // Print limits. Nominal value is skiped.
+            // It does not check if the limit changed.
+            if let Some(limits) = self.get_longest_limit_list() {
+                for (i,t) in export_list.iter().enumerate() {
+                    let c: u32 = (i*2 + 4).try_into().unwrap();
+                    // Lim2 (f32,f32),     // UL - LL
+                    // Lim3 (f32,f32,f32)  // Nom - UL - LL
+                    match limits[*t] {
+                        TLimit::Lim3(_, ul, ll) => {
+                            sheet.get_cell_mut((c, 2)).set_value_number(ll);
+                            sheet.get_cell_mut((c+1, 2)).set_value_number(ul);
+                        }
+                        TLimit::Lim2( ul, ll) => {
+                            sheet.get_cell_mut((c, 2)).set_value_number(ll);
+                            sheet.get_cell_mut((c+1, 2)).set_value_number(ul);
+                        }
+                        TLimit::None => {}
+                    }
+                }
+            }
+
+            // Print test results 
+            let mut l: u32 = 4; 
+            for mb in &self.multiboards{
+                for b in &mb.boards {
+                    l = b.export_to_line(sheet, l, settings.only_failed_panels, &export_list);
+                }
+            }
+
         } else {
             // Create header
             sheet.get_cell_mut("A1").set_value(self.product_id.clone());
