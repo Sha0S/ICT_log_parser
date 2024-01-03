@@ -223,7 +223,7 @@ impl Default for MyApp {
         let time_end = chrono::NaiveTime::from_hms_opt(23,59,59).unwrap();
 
         Self {
-            status: "Ready to go!".to_owned(),
+            status: "".to_owned(),
             lang: 0,
             product_list: load_product_list(),
             selected_product: 0,
@@ -263,12 +263,12 @@ impl eframe::App for MyApp {
         egui::TopBottomPanel::bottom("Status_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.add(ImageButton::new(egui::include_image!("../res/HU.png"))).clicked() {
-                    self.lang = 0;
+                    self.lang = LANG_HU;
                     self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
                 }
 
                 if ui.add(ImageButton::new(egui::include_image!("../res/UK.png"))).clicked() {
-                    self.lang = 1;
+                    self.lang = LANG_EN;
                     self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
                 }
 
@@ -284,38 +284,35 @@ impl eframe::App for MyApp {
             // "Menu" bar
             ui.horizontal(|ui| {
                 ui.set_enabled(!self.loading);
-                //ui.set_min_width(270.0);
 
                 if ui.button("📁").clicked() && !self.loading {
-                    let mut input_path = String::new();
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                        input_path = path.display().to_string();
+                        self.loading = true;
+                        self.hourly_stats.clear();
+                        self.selected_test = 0;
+                        *self.progress_x.write().unwrap() = 0;
+                        *self.progress_m.write().unwrap() = 1;
+
+                        let lb_lock = self.log_master.clone();
+                        let pm_lock = self.progress_m.clone();
+                        let px_lock = self.progress_x.clone();
+                        let frame = ctx.clone();
+
+                        thread::spawn(move || {
+                            let p = Path::new(&path);
+
+                            *pm_lock.write().unwrap() = count_logs_in_path(p).unwrap();
+                            (*lb_lock.write().unwrap()).clear();
+                            frame.request_repaint();
+
+                            read_logs_in_path(lb_lock.clone(), p, px_lock, frame).expect("Failed to load the logs!");
+
+                            //(*lb_lock.write().unwrap()).update();
+                            //(*lb_lock.write().unwrap()).get_failures();
+                        });
                     }
 
-                    self.loading = true;
-                    //self.mode = AppMode::None;
-                    self.hourly_stats.clear();
-                    self.selected_test = 0;
-                    *self.progress_x.write().unwrap() = 0;
-                    *self.progress_m.write().unwrap() = 1;
-
-                    let lb_lock = self.log_master.clone();
-                    let pm_lock = self.progress_m.clone();
-                    let px_lock = self.progress_x.clone();
-                    let frame = ctx.clone();
-
-                    thread::spawn(move || {
-                        let p = Path::new(&input_path);
-
-                        *pm_lock.write().unwrap() = count_logs_in_path(p).unwrap();
-                        (*lb_lock.write().unwrap()).clear();
-                        frame.request_repaint();
-
-                        read_logs_in_path(lb_lock.clone(), p, px_lock, frame).expect("Failed to load the logs!");
-
-                        (*lb_lock.write().unwrap()).update();
-                        (*lb_lock.write().unwrap()).get_failures();
-                    });
+                    
                 }
                 
                 egui::ComboBox::from_label("")
@@ -348,7 +345,7 @@ impl eframe::App for MyApp {
                     }
                 }
 
-                if ui.button("Shift").clicked() {
+                if ui.button(MESSAGE[SHIFT][self.lang]).clicked() {
                     self.date_start = chrono::Local::now().date_naive();
                     self.date_end = chrono::Local::now().date_naive();
 
@@ -371,7 +368,7 @@ impl eframe::App for MyApp {
                     self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
                 }
 
-                if ui.button("24h").clicked() {
+                if ui.button(MESSAGE[A_DAY][self.lang]).clicked() {
                     self.date_start = chrono::Local::now().date_naive().pred_opt().unwrap();
                     self.time_start = chrono::Local::now().time();
                     self.date_end = chrono::Local::now().date_naive();
@@ -405,7 +402,7 @@ impl eframe::App for MyApp {
 
                 ui.checkbox(&mut self.time_end_use, "");
 
-                if ui.button("Load").clicked() && !self.loading {
+                if ui.button(MESSAGE[LOAD][self.lang]).clicked() && !self.loading {
                     let input_path = self.product_list[self.selected_product].path.clone();
 
                     let start_dt =
@@ -444,8 +441,8 @@ impl eframe::App for MyApp {
 
                         read_logs_in_path_t(lb_lock.clone(), p, px_lock, frame, start_dt, end_dt).expect("Failed to load the logs!");
 
-                        (*lb_lock.write().unwrap()).update();
-                        (*lb_lock.write().unwrap()).get_failures();
+                        //(*lb_lock.write().unwrap()).update();
+                        //(*lb_lock.write().unwrap()).get_failures();
                     });
                 }
             });
@@ -461,16 +458,11 @@ impl eframe::App for MyApp {
 
                 if let Ok(m) = self.progress_m.try_read() {
                     mm = *m;
-                } else {
-                    println!("NRA");
                 }
 
                 if let Ok(x) = self.progress_x.try_read() {
-                    //println!("{}/{}", *x, mm);
                     xx = *x;
-                } else {
-                    println!("NRA");
-                }
+                } 
 
                 
             
@@ -481,11 +473,14 @@ impl eframe::App for MyApp {
                 if xx == mm {
                     self.loading =  false;
 
+                    let mut lock = self.log_master.write().unwrap();
+
                     // Get Yields
-                    self.yields = self.log_master.read().unwrap().get_yields();
-                    self.mb_yields = self.log_master.read().unwrap().get_mb_yields();
-                    self.failures = self.log_master.read().unwrap().get_failures();
-                    self.hourly_stats = self.log_master.read().unwrap().get_hourly_mb_stats();
+                    lock.update();
+                    self.yields = lock.get_yields();
+                    self.mb_yields = lock.get_mb_yields();
+                    self.failures = lock.get_failures();
+                    self.hourly_stats = lock.get_hourly_mb_stats();
                 }
             }
 
@@ -577,10 +572,10 @@ impl eframe::App for MyApp {
                         .column(Column::remainder())
                         .header(20.0, |mut header| {
                             header.col(|ui| {
-                                ui.heading("Kiesők:");
+                                ui.heading(MESSAGE[FAILURES][self.lang]);
                             });
                             header.col(|ui| {
-                                ui.heading("db");
+                                ui.heading(MESSAGE[PCS][self.lang]);
                             });
                         })
                         .body(|mut body| {
@@ -589,6 +584,7 @@ impl eframe::App for MyApp {
                                     row.col(|ui| {
                                         if ui.button(fail.name.to_owned()).clicked() {
                                             self.selected_test = fail.test_id;
+                                            self.mode = AppMode::Plot;
                                         }
                                     });
                                     row.col(|ui| {
@@ -608,15 +604,15 @@ impl eframe::App for MyApp {
             ui.set_enabled(!self.loading);
 
             ui.horizontal(|ui| {
-                if ui.button("💾 Export").clicked() {
+                if ui.button(MESSAGE_E[EXPORT_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Export;
                 }
 
-                if ui.button("⌚ Órai").clicked() {
+                if ui.button(MESSAGE_H[HOURLY_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Hourly;
                 }
 
-                if ui.button("📊 Plot").clicked() {
+                if ui.button(MESSAGE_P[PLOT_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Plot;
                 }
 
@@ -777,7 +773,7 @@ impl eframe::App for MyApp {
                     .column(Column::auto().resizable(true))
                     .header(20.0, |mut header| {
                         header.col(|ui| {
-                            ui.heading("Time");
+                            ui.heading(MESSAGE_H[TIME][self.lang]);
                         });
                         header.col(|ui| {
                             ui.heading("OK");
@@ -786,7 +782,7 @@ impl eframe::App for MyApp {
                             ui.heading("NOK");
                         });
                         header.col(|ui| {
-                            ui.heading("Results");
+                            ui.heading(MESSAGE_H[RESULTS][self.lang]);
                         });
                     })
                     .body(|mut body| {
@@ -818,25 +814,25 @@ impl eframe::App for MyApp {
             }
             
             if self.mode == AppMode::Export {
-                ui.heading("Settings:");
-                ui.checkbox(&mut self.export_settings.vertical, "Vertical orientation");
-                ui.checkbox(&mut self.export_settings.only_failed_panels, "Export only failed PCBs");
+                ui.heading(MESSAGE_E[SETTINGS][self.lang]);
+                ui.checkbox(&mut self.export_settings.vertical, MESSAGE_E[VERTICAL_O][self.lang]);
+                ui.checkbox(&mut self.export_settings.only_failed_panels, MESSAGE_E[EXPORT_NOK_ONLY][self.lang]);
                 ui.horizontal(|ui| {
-                    ui.monospace("Export tests:");
-                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::All, "All");
-                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::FailuresOnly, "Failed tests only");
-                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::Manual, "Manual");
+                    ui.monospace(MESSAGE_E[EXPORT_MODE][self.lang]);
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::All, MESSAGE_E[EXPORT_MODE_ALL][self.lang]);
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::FailuresOnly, MESSAGE_E[EXPORT_MODE_FTO][self.lang]);
+                    ui.selectable_value(&mut self.export_settings.mode, ExportMode::Manual, MESSAGE_E[EXPORT_MODE_MANUAL][self.lang]);
                 });
 
                 if self.export_settings.mode == ExportMode::Manual {
-                    ui.monospace("Selected tests:");
+                    ui.monospace(MESSAGE_E[EXPORT_MANUAL][self.lang]);
                     ui.text_edit_singleline(&mut self.export_settings.list);
-                    ui.monospace("Separate tests with a space. Example: \"c613 r412 v605%ON\"");
+                    ui.monospace(MESSAGE_E[EXPORT_MANUAL_EX][self.lang]);
                 }
 
                 ui.separator();
 
-                if ui.button("> Save <").clicked() && !self.loading {
+                if ui.button(MESSAGE_E[SAVE][self.lang]).clicked() && !self.loading {
                     if let Some(path) = rfd::FileDialog::new()
                     .add_filter("XLSX", &["xlsx"])
                     .set_file_name("out.xlsx")
