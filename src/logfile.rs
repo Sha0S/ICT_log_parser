@@ -66,7 +66,7 @@ fn u64_to_string(mut x: u64) -> String {
     format!("{:02.0}.{:02.0}.{:02.0} {:02.0}:{:02.0}:{:02.0}", YY, MM, DD, hh, mm, x)
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum ExportMode {
     All,
     FailuresOnly,
@@ -649,19 +649,37 @@ impl Board {
         true
     }
 
-    fn export_to_col(&self, sheet: &mut Worksheet, mut c: u32) -> u32 {
+    fn all_ok(&self) -> bool {
+        for l in &self.logs {
+            if l.result == BResult::Fail {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn export_to_col(&self, sheet: &mut Worksheet, mut c: u32, only_failure: bool, export_list: &Vec<usize>) -> u32 {
+        if only_failure && self.all_ok() { return c }
+
+        // Board values (DMC+index) only get printed once
         sheet.get_cell_mut((c, 1)).set_value(self.DMC.clone());
         sheet.get_cell_mut((c, 2)).set_value_number(self.index as u32);
 
         for l in &self.logs {
+            if only_failure && l.result == BResult::Pass { continue; }
+
+            // Log result and time of test
             sheet.get_cell_mut((c, 3)).set_value(l.result.print());
             sheet.get_cell_mut((c+1, 3)).set_value(u64_to_string(l.time_s));
 
-            for (i,t) in l.results.iter().enumerate() {
-                sheet.get_cell_mut((c, 4+(i as u32))).set_value(t.0.print());
-                sheet.get_cell_mut((c+1, 4+(i as u32))).set_value_number(t.1);
+            // Print measurement results
+            for (i,t) in export_list.iter().enumerate() {
+                if let Some(res) = l.results.get(*t) {
+                    sheet.get_cell_mut((c, 4+(i as u32))).set_value(res.0.print());
+                    sheet.get_cell_mut((c+1, 4+(i as u32))).set_value_number(res.1);
+                }
+                
             }
-
             c += 2; 
         }
 
@@ -1141,6 +1159,51 @@ impl LogFileHandler {
         None
     }
 
+    fn get_longest_limit_list(&self) -> Option<&Vec<TLimit>> {
+        let mut ret = None;
+        let mut x: usize = 0;
+
+        for mb in &self.multiboards {
+            for b in &mb.boards {
+                for l in &b.logs {
+                    if l.limits.len() > x {
+                       x = l.limits.len();
+                       ret=Some(&l.limits);
+                    }
+                }
+            }
+        }
+
+        ret
+    }
+
+    fn get_export_list(&self, settings: &ExportSettings) -> Vec<usize> {
+        let mut ret: Vec<usize> = Vec::new();
+
+        match settings.mode {
+            ExportMode::All => {
+                ret = (0..self.testlist.len()).collect();
+            }
+            ExportMode::FailuresOnly => {
+                for id in self.get_failures() {
+                    ret.push(id.test_id);
+                }
+            }
+            ExportMode::Manual => {
+                for part in settings.list.split(' ') {
+                    for ( i, (t, _)) in self.testlist.iter().enumerate() {
+                        if *t == part {
+                            ret.push(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        ret
+    }
+
     pub fn export(&self, path: PathBuf, settings: &ExportSettings) {
         let mut book = umya_spreadsheet::new_file();
         let mut sheet = book.get_sheet_mut(&0).unwrap();
@@ -1149,7 +1212,8 @@ impl LogFileHandler {
             /* 
                 WIP
             */
-        }   else {
+        } else {
+            // Create header
             sheet.get_cell_mut("A1").set_value(self.product_id.clone());
             sheet.get_cell_mut("A3").set_value("Test name");
             sheet.get_cell_mut("B3").set_value("Test type");
@@ -1158,57 +1222,44 @@ impl LogFileHandler {
             sheet.get_cell_mut("D3").set_value("Nom");
             sheet.get_cell_mut("E3").set_value("MAX");
 
-            if settings.mode == ExportMode::All {
-                for (i, t) in self.testlist.iter().enumerate() {
-                    let l: u32 = (i + 4).try_into().unwrap(); 
-                    sheet.get_cell_mut((1, l)).set_value(t.0.clone());
-                    sheet.get_cell_mut((2, l)).set_value(t.1.print());
-                }
+            // Generate list of teststeps to be exported
+            let export_list = self.get_export_list(settings);
 
-                match self.get_first_ok_log() {
-                    Some(l) => {
-                        for (i,t) in l.limits.iter().enumerate() {
-                            let l: u32 = (i + 4).try_into().unwrap();
-                            // Lim2 (f32,f32),     // UL - LL
-                            // Lim3 (f32,f32,f32)  // Nom - UL - LL
-                            match t {
-                                TLimit::Lim3(nom, ul, ll) => {
-                                    sheet.get_cell_mut((3, l)).set_value_number(*ll);
-                                    sheet.get_cell_mut((4, l)).set_value_number(*nom);
-                                    sheet.get_cell_mut((5, l)).set_value_number(*ul);
-                                }
-                                TLimit::Lim2( ul, ll) => {
-                                    sheet.get_cell_mut((3, l)).set_value_number(*ll);
-                                    sheet.get_cell_mut((5, l)).set_value_number(*ul);
-                                }
-                                TLimit::None => {}
-                            }
-                        }
-                    }
-                    None => {
-                        /* 
-                            WIP
-                        */                        
-                        println!("ERR: No passing log found! WIP! Aborting!");
-                    }
-                };
+            // Print testlist
+            for (i, t) in export_list.iter().enumerate() {
+                let l: u32 = (i + 4).try_into().unwrap(); 
+                sheet.get_cell_mut((1, l)).set_value(self.testlist[*t].0.clone());
+                sheet.get_cell_mut((2, l)).set_value(self.testlist[*t].1.print());
+            }
 
-                if settings.only_failed_panels {
-                    /* 
-                        WIP
-                    */     
-                } else {
-                    let mut c: u32 = 6; 
-                    for mb in &self.multiboards{
-                        for b in &mb.boards {
-                            c = b.export_to_col(sheet, c);
+            // Print limits
+            // It does not check if the limit changed.
+            if let Some(limits) = self.get_longest_limit_list() {
+                for (i,t) in export_list.iter().enumerate() {
+                    let l: u32 = (i + 4).try_into().unwrap();
+                    // Lim2 (f32,f32),     // UL - LL
+                    // Lim3 (f32,f32,f32)  // Nom - UL - LL
+                    match limits[*t] {
+                        TLimit::Lim3(nom, ul, ll) => {
+                            sheet.get_cell_mut((3, l)).set_value_number(ll);
+                            sheet.get_cell_mut((4, l)).set_value_number(nom);
+                            sheet.get_cell_mut((5, l)).set_value_number(ul);
                         }
+                        TLimit::Lim2( ul, ll) => {
+                            sheet.get_cell_mut((3, l)).set_value_number(ll);
+                            sheet.get_cell_mut((5, l)).set_value_number(ul);
+                        }
+                        TLimit::None => {}
                     }
                 }
-            } else {
-                /* 
-                    WIP
-                */
+            }
+                    
+            // Print test results 
+            let mut c: u32 = 6; 
+            for mb in &self.multiboards{
+                for b in &mb.boards {
+                    c = b.export_to_col(sheet, c, settings.only_failed_panels, &export_list);
+                }
             }
         }
 
