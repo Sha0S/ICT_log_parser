@@ -135,7 +135,7 @@ fn load_product_list() -> Vec<Product> {
     let mut list = Vec::new();
 
     let p = Path::new(".\\res\\products");
-    if let Some(fileb) = fs::read_to_string(p) {
+    if let Option(fileb) = fs::read_to_string(p) {
         for line in fileb.lines() {
             if !line.is_empty() {
                 let mut parts = line.split('|');
