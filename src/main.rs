@@ -8,8 +8,6 @@ use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 
 use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime, DateTime};
 
-//use egui_dropdown::DropDownBox;
-
 mod logfile;
 use logfile::{ExportMode, ExportSettings,LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
 
@@ -20,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 
-
+const VERSION: &str = "v2.0.1";
 include!("locals.rs");
 
 /*
@@ -152,7 +150,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "ICT Logfile Parser v2.0",
+        format!("ICT Logfile Parser {VERSION}").as_str(),
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
