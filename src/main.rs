@@ -6,19 +6,20 @@ use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
 use egui_extras::{TableBuilder, Column};
 use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 
-use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime};
+use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime, DateTime};
 
 //use egui_dropdown::DropDownBox;
 
+mod logfile;
 use logfile::{ExportMode, ExportSettings,LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
+
 use std::fs;
 use std::ops::RangeInclusive;
-use std::path::Path;
-
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-mod logfile;
+
 
 include!("locals.rs");
 
@@ -43,27 +44,6 @@ fn count_logs_in_path(p: &Path) -> Result< u32, std::io::Error> {
     Ok(i)
 }
 
-fn count_logs_in_path_t(p: &Path, start: chrono::DateTime<Local> , end: chrono::DateTime<Local>) -> Result< u32, std::io::Error> {
-    let mut i = 0;
-    for file in fs::read_dir(p)? {
-        let file = file?;
-        let path = file.path();
-        if path.is_dir() {
-            i += count_logs_in_path_t(&path, start, end)?;
-        } else {
-            if let Ok(x) = path.metadata() {
-                let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
-                if ct >= start && ct < end {
-                    i += 1; 
-                }
-            }
-        }
-    }
-
-    println!("found {i} files between {:?} and {:?}", start, end );
-    Ok(i)
-}
-
 fn read_logs_in_path(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context) -> Result<u32,std::io::Error> {
     println!("INFO: RLiP start at {}", p.display());
     
@@ -84,30 +64,38 @@ fn read_logs_in_path(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLo
     Ok(0)
 }
 
-fn read_logs_in_path_t(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context,
-    start: chrono::DateTime<Local> , end: chrono::DateTime<Local>) -> Result<u32,std::io::Error> {
-        println!("INFO: RLiP start at {}", p.display());
-        
-        for file in fs::read_dir(p)? {
-                let file = file?;
-                let path = file.path();
-                if path.is_dir() {
-                    let cl = x_lock.clone();
-                    read_logs_in_path_t(b.clone(),&path,cl, frame.clone(), start, end)?;
-                } else {
-                    if let Ok(x) = path.metadata() {
-                        let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
-                        if ct >= start && ct < end {
-                            (*b.write().unwrap()).push_from_file(&path);
-                            *x_lock.write().unwrap() += 1;
-                            frame.request_repaint();
-                        }
-                    }
-                }
-        }
 
-        println!("INFO: RLiP end {}", p.display());   
-        Ok(0)
+fn is_dir_in_t(s: &PathBuf, start: DateTime<Local> , end: DateTime<Local>) -> bool
+{
+    if let Ok(as_time) = NaiveDate::parse_from_str(s.file_name().unwrap().to_str().unwrap(), "%Y_%m_%d") {
+        if start.date_naive() <= as_time && end.date_naive() >= as_time {
+            return true
+        }
+    }
+    false
+}
+
+fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -> Result<Vec<PathBuf>,std::io::Error> {
+    let mut ret: Vec<PathBuf> = Vec::new();
+	
+	for file in fs::read_dir(p)? {
+        let file = file?;
+        let path = file.path();
+        if path.is_dir() {
+			if is_dir_in_t(&path, start, end) {
+				ret.append( &mut get_logs_in_path_t(&path, start, end)? );
+			}
+        } else {
+            if let Ok(x) = path.metadata() {
+                let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
+                if ct >= start && ct < end {
+                    ret.push( path.to_path_buf() );
+                }
+            }
+        }
+    }
+
+	Ok(ret)
 }
 
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
@@ -307,9 +295,6 @@ impl eframe::App for MyApp {
                             frame.request_repaint();
 
                             read_logs_in_path(lb_lock.clone(), p, px_lock, frame).expect("Failed to load the logs!");
-
-                            //(*lb_lock.write().unwrap()).update();
-                            //(*lb_lock.write().unwrap()).get_failures();
                         });
                     }
 
@@ -440,12 +425,20 @@ impl eframe::App for MyApp {
 
                         thread::spawn(move || {
                             let p = Path::new(&input_path);
+                            
+                            if let Ok(logs) = get_logs_in_path_t(p, start_dt, end_dt) {
+                                *pm_lock.write().unwrap() = logs.len() as u32;
+                                (*lb_lock.write().unwrap()).clear();
+                                frame.request_repaint();
 
-                            *pm_lock.write().unwrap() = count_logs_in_path_t(p, start_dt, end_dt).unwrap();
-                            (*lb_lock.write().unwrap()).clear();
-                            frame.request_repaint();
+                                println!("Found {} logs to load.", logs.len());
 
-                            read_logs_in_path_t(lb_lock.clone(), p, px_lock, frame, start_dt, end_dt).expect("Failed to load the logs!");
+                                for log in &logs {
+                                    (*lb_lock.write().unwrap()).push_from_file(log);
+                                    *px_lock.write().unwrap() += 1;
+                                    frame.request_repaint();
+                                }
+                            }
                         });
                     }
                 }
