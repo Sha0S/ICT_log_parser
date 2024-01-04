@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
 use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
@@ -722,6 +722,7 @@ impl eframe::App for MyApp {
                                     TType::Capacitor => "F",
                                     TType::Resistor => "Ω",
                                     TType::Jumper => "Ω",
+                                    TType::Fuse => "Ω",
                                     TType::Inductor => "H",
                                     TType::Diode => "V",
                                     TType::Zener => "V",
