@@ -409,47 +409,45 @@ impl eframe::App for MyApp {
                 ui.checkbox(&mut self.time_end_use, "");
 
                 if ui.button(MESSAGE[LOAD][self.lang]).clicked() && !self.loading {
-                    let input_path = self.product_list[self.selected_product].path.clone();
+                    if let Some(product) = self.product_list.get(self.selected_product) {
+                        let input_path = product.path.clone();
 
-                    let start_dt =
-                        chrono::TimeZone::from_local_datetime(&Local, 
-                        &NaiveDateTime::new(self.date_start, self.time_start))
-                        .unwrap();
-
-                    let end_dt = {
-                        if self.time_end_use {
+                        let start_dt =
                             chrono::TimeZone::from_local_datetime(&Local, 
-                                &NaiveDateTime::new(self.date_end, self.time_end))
-                                .unwrap()
-                        } else {
-                            chrono::Local::now()
-                        }
-                    };
+                            &NaiveDateTime::new(self.date_start, self.time_start))
+                            .unwrap();
 
-                    self.loading = true;
-                    //self.mode = AppMode::None;
-                    self.hourly_stats.clear();
-                    self.selected_test = 0;
-                    *self.progress_x.write().unwrap() = 0;
-                    *self.progress_m.write().unwrap() = 1;
+                        let end_dt = {
+                            if self.time_end_use {
+                                chrono::TimeZone::from_local_datetime(&Local, 
+                                    &NaiveDateTime::new(self.date_end, self.time_end))
+                                    .unwrap()
+                            } else {
+                                chrono::Local::now()
+                            }
+                        };
 
-                    let lb_lock = self.log_master.clone();
-                    let pm_lock = self.progress_m.clone();
-                    let px_lock = self.progress_x.clone();
-                    let frame = ctx.clone();
+                        self.loading = true;
+                        self.hourly_stats.clear();
+                        self.selected_test = 0;
+                        *self.progress_x.write().unwrap() = 0;
+                        *self.progress_m.write().unwrap() = 1;
 
-                    thread::spawn(move || {
-                        let p = Path::new(&input_path);
+                        let lb_lock = self.log_master.clone();
+                        let pm_lock = self.progress_m.clone();
+                        let px_lock = self.progress_x.clone();
+                        let frame = ctx.clone();
 
-                        *pm_lock.write().unwrap() = count_logs_in_path_t(p, start_dt, end_dt).unwrap();
-                        (*lb_lock.write().unwrap()).clear();
-                        frame.request_repaint();
+                        thread::spawn(move || {
+                            let p = Path::new(&input_path);
 
-                        read_logs_in_path_t(lb_lock.clone(), p, px_lock, frame, start_dt, end_dt).expect("Failed to load the logs!");
+                            *pm_lock.write().unwrap() = count_logs_in_path_t(p, start_dt, end_dt).unwrap();
+                            (*lb_lock.write().unwrap()).clear();
+                            frame.request_repaint();
 
-                        //(*lb_lock.write().unwrap()).update();
-                        //(*lb_lock.write().unwrap()).get_failures();
-                    });
+                            read_logs_in_path_t(lb_lock.clone(), p, px_lock, frame, start_dt, end_dt).expect("Failed to load the logs!");
+                        });
+                    }
                 }
             });
 
