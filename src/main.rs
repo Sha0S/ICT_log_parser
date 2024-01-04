@@ -135,20 +135,21 @@ fn load_product_list() -> Vec<Product> {
     let mut list = Vec::new();
 
     let p = Path::new(".\\res\\products");
-    let fileb = fs::read_to_string(p).unwrap();
-    for line in fileb.lines() {
-        if !line.is_empty() {
-            let mut parts = line.split('|');
-            let desc = parts.next().unwrap().to_owned();
-            let path = parts.next().unwrap().to_owned();
-
-            if Path::new(&path).try_exists().is_ok_and(|x| x == true) {
-                list.push (
-                    Product{
-                        desc,
-                        path
-                    } ); }
-        } 
+    if let Some(fileb) = fs::read_to_string(p) {
+        for line in fileb.lines() {
+            if !line.is_empty() {
+                let mut parts = line.split('|');
+                let desc = parts.next().unwrap().to_owned();
+                let path = parts.next().unwrap().to_owned();
+    
+                if Path::new(&path).try_exists().is_ok_and(|x| x == true) {
+                    list.push (
+                        Product{
+                            desc,
+                            path
+                        } ); }
+            } 
+        }
     }
     
     list
@@ -316,7 +317,12 @@ impl eframe::App for MyApp {
                 }
                 
                 egui::ComboBox::from_label("")
-                    .selected_text(self.product_list[self.selected_product].desc.clone())
+                    .selected_text(
+                        match self.product_list.get(self.selected_product) {
+                            Some(sel) => sel.desc.clone(),
+                            None => "".to_string()
+                        }
+                    )
                     .show_ui(ui, |ui| {
                         for (i, t) in self.product_list.iter().enumerate() {
                             ui.selectable_value(&mut self.selected_product, i, t.desc.clone());
