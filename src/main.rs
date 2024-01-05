@@ -56,8 +56,8 @@ fn is_dir_in_t(s: &PathBuf, start: DateTime<Local> , end: DateTime<Local>) -> bo
     false
 }
 
-fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -> Result<Vec<PathBuf>,std::io::Error> {
-    let mut ret: Vec<PathBuf> = Vec::new();
+fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -> Result<Vec<(PathBuf,u64)>,std::io::Error> {
+    let mut ret: Vec<(PathBuf,u64)> = Vec::new();
 	
 	for file in fs::read_dir(p)? {
         let file = file?;
@@ -70,7 +70,7 @@ fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -
             if let Ok(x) = path.metadata() {
                 let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
                 if ct >= start && ct < end {
-                    ret.push( path.to_path_buf() );
+                    ret.push( (path.to_path_buf(), x.len()) );
                 }
             }
         }
@@ -418,15 +418,16 @@ impl eframe::App for MyApp {
                         thread::spawn(move || {
                             let p = Path::new(&input_path);
                             
-                            if let Ok(logs) = get_logs_in_path_t(p, start_dt, end_dt) {
+                            if let Ok(mut logs) = get_logs_in_path_t(p, start_dt, end_dt) {
                                 *pm_lock.write().unwrap() = logs.len() as u32;
                                 (*lb_lock.write().unwrap()).clear();
                                 frame.request_repaint();
 
                                 println!("Found {} logs to load.", logs.len());
+                                logs.sort_by_key(|k| k.1);
 
-                                for log in &logs {
-                                    (*lb_lock.write().unwrap()).push_from_file(log);
+                                for log in logs.iter().rev() {
+                                    (*lb_lock.write().unwrap()).push_from_file(&log.0);
                                     *px_lock.write().unwrap() += 1;
                                     frame.request_repaint();
                                 }
