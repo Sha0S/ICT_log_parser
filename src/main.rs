@@ -90,7 +90,7 @@ fn u64_to_timeframe(mut x: u64) -> String {
     let d = x/u64::pow(10, 2);
     x = x % u64::pow(10, 2);
 
-    format!("{0}.{1}.{2} {3}:00 - {3}:59", y, m, d, x)
+    format!("{0:02.0}.{1:02.0}.{2:02.0} {3:02.0}:00 - {3:02.0}:59", y, m, d, x)
 }
 
 struct Product{
@@ -230,22 +230,6 @@ impl Default for MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::bottom("Status_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.add(ImageButton::new(egui::include_image!("../res/HU.png"))).clicked() {
-                    self.lang = LANG_HU;
-                    self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
-                }
-
-                if ui.add(ImageButton::new(egui::include_image!("../res/UK.png"))).clicked() {
-                    self.lang = LANG_EN;
-                    self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
-                }
-
-                ui.monospace(self.status.to_string());
-            });
-            
-        });
 
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
             ui.set_min_width(270.0);
@@ -471,6 +455,8 @@ impl eframe::App for MyApp {
                     self.mb_yields = lock.get_mb_yields();
                     self.failures = lock.get_failures();
                     self.hourly_stats = lock.get_hourly_mb_stats();
+
+                    ctx.request_repaint();
                 }
             }
 
@@ -588,6 +574,23 @@ impl eframe::App for MyApp {
             }
         });
             
+        egui::TopBottomPanel::bottom("Status_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.add(ImageButton::new(egui::include_image!("../res/HU.png"))).clicked() {
+                    self.lang = LANG_HU;
+                    self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
+                }
+
+                if ui.add(ImageButton::new(egui::include_image!("../res/UK.png"))).clicked() {
+                    self.lang = LANG_EN;
+                    self.status = MESSAGE[LANG_CHANGE][self.lang].to_owned();
+                }
+
+                ui.monospace(self.status.to_string());
+            });
+            
+        });
+        
         // Central panel
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -699,13 +702,6 @@ impl eframe::App for MyApp {
                     Plot::new("Test results")
                         .auto_bounds_x()
                         .auto_bounds_y()
-                        .legend(
-                            egui_plot::Legend {
-                                text_style: egui::TextStyle::Monospace,
-                                background_alpha: 0.25,
-                                position: egui_plot::Corner::LeftBottom
-                            }
-                        )
                         .custom_x_axes(
                             vec![egui_plot::AxisHints::default()
                             .formatter(x_formatter)
