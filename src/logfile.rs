@@ -230,6 +230,15 @@ struct Test {
     limits: TLimit,
 }
 
+impl Test {
+    fn clear(&mut self) {
+        self.name = String::new();
+        self.ttype = TType::Unknown;
+        self.result = (BResult::Unknown, 0.0);
+        self.limits = TLimit::None;
+    }
+}
+
 pub struct LogFile {
     source: OsString,
     DMC: String,
@@ -503,91 +512,6 @@ impl LogFile {
             tests
         }
     }
-
-    fn compare(&self, ordering: &Vec<TList>) -> bool {
-        for (o,t) in ordering.iter().zip(self.tests.iter())
-        {
-            if o.0 != t.name {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    fn order(&mut self, ordering: &Vec<TList>) -> bool {
-        // Check if lengths match
-        if ordering.len() < self.tests.len() {
-            println!("\t\tTest list length mismatch!");
-            return false
-        }
-
-        // Gather mismatching indexes
-        let mut indexes: Vec<usize> = Vec::new();
-        let mut list_tmp: Vec<Test> = Vec::new();
-        for (i,(o,t)) in ordering.iter().zip(self.tests.iter()).enumerate()
-        {
-            if o.0 != t.name {
-                println!("\t\t\t {} =/= {}", o.0, t.name);
-                indexes.push(i);
-                list_tmp.push(t.clone());
-            }
-        }
-
-        println!("\t\tFound {} mismatching entries. {:?}" , indexes.len(), indexes);
-
-        // Let's check if they even have a pair.
-        'has_a_pair: for (i2, tmp) in list_tmp.iter_mut().enumerate() 
-        {
-            for (i, t) in ordering.iter().enumerate() {
-                if tmp.name == t.0 {
-                    // If it exists, but it isn't part of the indexes, then discard it.
-                    // This *should* only affect "discharge" type tests. Which should be at the very end of the list.
-                    if !indexes.contains(&i) {
-                        println!("\t\tW: {}: {} has a pair (nbr {}) in the order, but it isn't present in the gathered indexes!", i2, tmp.name, i);
-                        println!("\t\tW: Removing entry nbr {} from the testlist.", indexes[i2]);
-                        self.tests.remove(indexes[i2]);
-                    }
-
-                    continue 'has_a_pair;
-                }
-            }
-
-            println!("\t\tW: {}: {} has no pair in the order!", i2, tmp.name);
-            
-            // EXPERIMENTAL !!! 
-            // This is a fix to a "bug" with Boundary Scan BLOCKS. 
-            // If a block contains only BS measurements, in case of failure, it will only apear in the logfile as a single BS test.
-            // This creates a incompatibility between the two. We can "fix" this by adding a index to the testname.
-            let problematic_test = &mut self.tests[indexes[i2]];
-            if problematic_test.ttype == TType::BoundaryS && problematic_test.result.0 == BResult::Fail{
-                println!("\t\t\tIt's a failing BoundaryScan test, adding index to it's name.");
-                problematic_test.name += "%boundary_1";
-                tmp.name += "%boundary_1";
-                println!("\t\t\tNew name: {}", problematic_test.name);
-            }
-            // EXPERIMENTAL !!!
-        }
-
-        // Copy the tmp list back to the testlist, with the indexes corrected.
-        'fori: for i in &indexes
-        {
-            for tmp in list_tmp.iter()
-            {
-                if ordering[*i].0 == tmp.name {
-                    self.tests[*i] = tmp.clone();
-                    continue 'fori;
-                }
-            }
-
-            println!("\t\tW: No match found for {}!!", ordering[*i].0);
-        }
-
-        println!("\t\tRe-ordering done!");
-
-        self.compare(ordering) // could return "true" once I validated the fn
-    }
-
 }
 
 struct Log {
@@ -930,8 +854,10 @@ impl LogFileHandler {
     }
 
     pub fn push(&mut self, mut log: LogFile) -> bool {
+        println!("\tProcessing logfile: {:?}", log.source);
+
         if self.product_id.is_empty() {
-            println!("\tINFO: Initializing as {}", log.product_id);
+            println!("\t\tINFO: Initializing as {}", log.product_id);
             self.product_id = log.product_id.to_owned();
 
             // Create testlist
@@ -946,29 +872,64 @@ impl LogFileHandler {
             // Check if it is for the same type.
             // Mismatched types are not supported. (And ATM I see no reason to do that.)
             if self.product_id != log.product_id {
-                println!("\tERR: Product type mismatch detected! {} =/= {}\n\t\t {:?}", self.product_id, log.product_id, log.source);
+                println!("\t\tERR: Product type mismatch detected! {} =/= {}\n\t\t {:?}", self.product_id, log.product_id, log.source);
                 return false
             }
 
-            // Check if the testlist matches
-            if !log.compare(&self.testlist) {
-                println!("\tW: Test order mismatch detected! Atempting re-ordering!\n\t\t{:?}", log.source);
-                if !log.order(&self.testlist) {
-                    println!("\t ERR: Re-ordering FAILED! Discrading the log.");
-                    return false;
+            /*
+                ToDo: Check for version (D5?)
+                Need to add version info to logfile, and product_list.
+            */
+
+            // If the testlist is missing any entries, add them
+            for test in &log.tests {
+                if !self.testlist.iter().any(|e| e.0 == test.name) {
+                    println!("\t\tW: Test {} was missing from testlist. Adding.", test.name);
+                    self.testlist.push((test.name.clone(), test.ttype));
                 }
-                println!("\tINFO: Re orering succesfull!");
             }
 
-            // If the new one has a longer testlist, then extend the current one.
-            if self.testlist.len() < log.tests.len() {
-                println!("\tINFO: Updating test_list.");
-                self.testlist.clear();
+            // log.tests is always shorter or = than the testlist
+            log.tests.resize(self.testlist.len(), 
+            Test {
+                    name: String::new(),
+                    ttype: TType::Unknown, 
+                    result: (BResult::Unknown,0.0), 
+                    limits: TLimit::None }); 
 
-                // I'm sure there is a faster way, but we rarely should have to do this, if ever.
-                for t in &log.tests {
-                    self.testlist.push((t.name.to_owned(), t.ttype));
+            let len = log.tests.len(); // log.tests is always shorter than the testlist
+            let mut buffer_i: Vec<usize> = Vec::new();
+            
+            // Get diff
+            let mut q = 0;
+
+            for i in 0..len {
+                if self.testlist[i].0 != log.tests[i].name {
+                    if !log.tests[i].name.is_empty() {
+                        q += 1;
+                        println!("\t\tW: Test mismatch: {} =/= {}", self.testlist[i].0, log.tests[i].name);
+                    }
+                    buffer_i.push(i);
                 }
+            }
+
+            if q > 0 {
+                print!("\t\tFound {} ({}) mismatches, re-ordering... ", q, buffer_i.len());
+                let mut tmp: Vec<Test> = Vec::new();
+                for i in &buffer_i {
+                    tmp.push(log.tests[*i].clone());
+                    log.tests[*i].clear();
+                }
+
+                for i in &buffer_i {
+                    for t in &tmp {
+                        if self.testlist[*i].0 == t.name {
+                            log.tests[*i] = t.clone();
+                        }
+                    }
+                }
+                
+                println!("Done!");
             }
 
 			// Check if the MultiBoard already exists.
@@ -1170,20 +1131,6 @@ impl LogFileHandler {
         }
 
         (self.testlist[testid].1,resultlist)
-    }
-
-    fn get_first_ok_log(&self) -> Option<&Log> {
-        for mb in &self.multiboards {
-            for b in &mb.boards {
-                for l in &b.logs {
-                    if l.result == BResult::Pass {
-                        return Some(l)
-                    }
-                }
-            }
-        }
-
-        None
     }
 
     fn get_longest_limit_list(&self) -> Option<&Vec<TLimit>> {
