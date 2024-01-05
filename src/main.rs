@@ -642,8 +642,11 @@ impl eframe::App for MyApp {
                     }
                     // Insert plot here
 
-                    let ppoints: PlotPoints = self.selected_test_results.1.iter().map(|r| {
-                        [r.0 as f64, r.2.1 as f64]
+                    let ppoints: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
+                        if r.2.0 == BResult::Unknown {
+                            return None
+                        }
+                        Some([r.0 as f64, r.2.1 as f64])
                     }).collect();
 
                     //Lim2 (f32,f32),     // UL - LL
