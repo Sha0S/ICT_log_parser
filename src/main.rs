@@ -27,39 +27,22 @@ This wasn't the original behaviour, but it should be fine? It is also really fas
 If preformance is an issue, then maybe we could add some filtering to the sub-directories..?
 */
 
-fn count_logs_in_path(p: &Path) -> Result< u32, std::io::Error> {
-    let mut i = 0;
-    for file in fs::read_dir(p)? {
+fn get_logs_in_path(p: &Path) -> Result<Vec<(PathBuf,u64)>,std::io::Error> {
+    let mut ret: Vec<(PathBuf,u64)> = Vec::new();
+	
+	for file in fs::read_dir(p)? {
         let file = file?;
         let path = file.path();
         if path.is_dir() {
-            i += count_logs_in_path(&path)?;
+			ret.append( &mut get_logs_in_path(&path)? );
         } else {
-            i += 1; 
+            if let Ok(x) = path.metadata() {
+                ret.push( (path.to_path_buf(), x.len()) );
+            }
         }
     }
 
-    Ok(i)
-}
-
-fn read_logs_in_path(b:  Arc<RwLock<LogFileHandler>>, p: &Path, x_lock: Arc<RwLock<u32>>, frame: egui::Context) -> Result<u32,std::io::Error> {
-    println!("INFO: RLiP start at {}", p.display());
-    
-    for file in fs::read_dir(p)? {
-            let file = file?;
-            let path = file.path();
-            if path.is_dir() {
-               let cl = x_lock.clone();
-               read_logs_in_path(b.clone(),&path,cl, frame.clone())?;
-            } else {
-                (*b.write().unwrap()).push_from_file(&path);
-                *x_lock.write().unwrap() += 1;
-                frame.request_repaint();
-            }
-    }
-
-    println!("INFO: RLiP end {}", p.display());   
-    Ok(0)
+	Ok(ret)
 }
 
 
@@ -273,7 +256,7 @@ impl eframe::App for MyApp {
                 ui.set_enabled(!self.loading);
 
                 if ui.button("📁").clicked() && !self.loading {
-                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    if let Some(input_path) = rfd::FileDialog::new().pick_folder() {
                         self.loading = true;
                         self.hourly_stats.clear();
                         self.selected_test = 0;
@@ -286,13 +269,24 @@ impl eframe::App for MyApp {
                         let frame = ctx.clone();
 
                         thread::spawn(move || {
-                            let p = Path::new(&path);
+                            let p = Path::new(&input_path);
+                            
+                            if let Ok(mut logs) = get_logs_in_path(p) {
+                                *pm_lock.write().unwrap() = logs.len() as u32;
+                                (*lb_lock.write().unwrap()).clear();
+                                frame.request_repaint();
 
-                            *pm_lock.write().unwrap() = count_logs_in_path(p).unwrap();
-                            (*lb_lock.write().unwrap()).clear();
-                            frame.request_repaint();
+                                println!("Found {} logs to load.", logs.len());
 
-                            read_logs_in_path(lb_lock.clone(), p, px_lock, frame).expect("Failed to load the logs!");
+                                // Sorting logs by SIZE, we want to load the biggest one first.
+                                logs.sort_by_key(|k| k.1);
+
+                                for log in logs.iter().rev() {
+                                    (*lb_lock.write().unwrap()).push_from_file(&log.0);
+                                    *px_lock.write().unwrap() += 1;
+                                    frame.request_repaint();
+                                }
+                            }
                         });
                     }
 
