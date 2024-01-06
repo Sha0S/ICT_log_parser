@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
-use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2};
+use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense};
 use egui_extras::{TableBuilder, Column};
 use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 
@@ -151,6 +151,11 @@ enum AppMode {
     Export
 }
 
+#[derive(PartialEq)]
+enum YieldMode {
+    SingleBoard,
+    MultiBoard
+}
 //#[derive(Default)]
 struct MyApp {
     status: String,
@@ -168,10 +173,13 @@ struct MyApp {
     time_end_string: String, 
     time_end_use: bool,
 
+    auto_update: bool,
+
     loading: bool,
     progress_x: Arc<RwLock<u32>>,
     progress_m: Arc<RwLock<u32>>,
 
+    yield_mode: YieldMode,
     yields: [Yield;3],
     mb_yields: [Yield;3],
     failures: Vec<FailureList>,
@@ -208,10 +216,13 @@ impl Default for MyApp {
             time_end_string: time_end.format("%H:%M:%S").to_string(),
             time_end_use: true,
 
+            auto_update: false,
+
             loading: false,
             progress_x: Arc::new(RwLock::new(0)),
             progress_m: Arc::new(RwLock::new(1)),
 
+            yield_mode: YieldMode::SingleBoard,
             yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
             mb_yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
             failures: Vec::new(),
@@ -278,6 +289,7 @@ impl eframe::App for MyApp {
                 }
                 
                 egui::ComboBox::from_label("")
+                    .width(200.0)
                     .selected_text(
                         match self.product_list.get(self.selected_product) {
                             Some(sel) => sel.desc.clone(),
@@ -366,9 +378,8 @@ impl eframe::App for MyApp {
                     }
                 });
 
-
-                ui.checkbox(&mut self.time_end_use, "");
-
+                ui.add(egui::Checkbox::without_text(&mut self.time_end_use));
+                
                 if ui.button(MESSAGE[LOAD][self.lang]).clicked() && !self.loading {
                     if let Some(product) = self.product_list.get(self.selected_product) {
                         let input_path = product.path.clone();
@@ -421,6 +432,14 @@ impl eframe::App for MyApp {
                 }
             });
 
+            ui.horizontal(|ui| {
+                ui.set_enabled(false); // Not yet implemented WIP
+
+                ui.monospace(MESSAGE[AUTO_UPDATE][self.lang]);
+                ui.add(egui::Checkbox::without_text(&mut self.auto_update));
+            });
+            
+
             // Loading Bar
 
             if self.loading {
@@ -433,12 +452,9 @@ impl eframe::App for MyApp {
                 if let Ok(m) = self.progress_m.try_read() {
                     mm = *m;
                 }
-
                 if let Ok(x) = self.progress_x.try_read() {
                     xx = *x;
                 } 
-
-                
             
                 ui.add(ProgressBar::new(xx as f32 / mm as f32));
 
@@ -449,7 +465,6 @@ impl eframe::App for MyApp {
 
                     let mut lock = self.log_master.write().unwrap();
 
-                    // Get Yields
                     lock.update();
                     self.yields = lock.get_yields();
                     self.mb_yields = lock.get_mb_yields();
@@ -463,9 +478,18 @@ impl eframe::App for MyApp {
             // Statistics:
 
             ui.separator();
+
+            ui.horizontal(|ui|{
+                ui.monospace(MESSAGE[YIELD][self.lang]);
+
+                // Localiazation? 
+                ui.selectable_value(&mut self.yield_mode, YieldMode::SingleBoard, "Single");
+                ui.selectable_value(&mut self.yield_mode, YieldMode::MultiBoard, "Multiboard");
+            });
+
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.monospace(MESSAGE[YIELD][self.lang]);
+                    ui.monospace("");
                     ui.monospace(MESSAGE[FIRST_T][self.lang]);
                     ui.monospace(MESSAGE[AFTER_RT][self.lang]);
                     ui.monospace(MESSAGE[TOTAL][self.lang]);
@@ -473,68 +497,39 @@ impl eframe::App for MyApp {
 
                 ui.add(egui::Separator::default().vertical());
 
+                let x = match self.yield_mode {
+                    YieldMode::SingleBoard => &self.yields,
+                    YieldMode::MultiBoard => &self.mb_yields,
+                };
+                    
+                
+
                 ui.vertical(|ui| {
                     ui.monospace("OK");
-                    ui.monospace(format!("{}",self.yields[0].0) );
-                    ui.monospace(format!("{}",self.yields[1].0) );
-                    ui.monospace(format!("{}",self.yields[2].0) );
+                    ui.monospace(format!("{}",x[0].0) );
+                    ui.monospace(format!("{}",x[1].0) );
+                    ui.monospace(format!("{}",x[2].0) );
                 });
 
                 ui.add(egui::Separator::default().vertical());
 
                 ui.vertical(|ui| {
                     ui.monospace("NOK");
-                    ui.monospace(format!("{}",self.yields[0].1) );
-                    ui.monospace(format!("{}",self.yields[1].1) );
-                    ui.monospace(format!("{}",self.yields[2].1) );
+                    ui.monospace(format!("{}",x[0].1) );
+                    ui.monospace(format!("{}",x[1].1) );
+                    ui.monospace(format!("{}",x[2].1) );
                 });
 
                 ui.add(egui::Separator::default().vertical());
 
                 ui.vertical(|ui| {
                     ui.monospace("%");
-                    ui.monospace(format!("{0:.2}",self.yields[0].precentage()) );
-                    ui.monospace(format!("{0:.2}",self.yields[1].precentage()) );
-                    ui.monospace(format!("{0:.2}",self.yields[2].precentage()) );
+                    ui.monospace(format!("{0:.2}",x[0].precentage()) );
+                    ui.monospace(format!("{0:.2}",x[1].precentage()) );
+                    ui.monospace(format!("{0:.2}",x[2].precentage()) );
                 });
             });
 
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.monospace(MESSAGE[MB_YIELD][self.lang]);
-                    ui.monospace(MESSAGE[FIRST_T][self.lang]);
-                    ui.monospace(MESSAGE[AFTER_RT][self.lang]);
-                    ui.monospace(MESSAGE[TOTAL][self.lang]);
-                });
-
-                ui.add(egui::Separator::default().vertical());
-
-                ui.vertical(|ui| {
-                    ui.monospace("OK");
-                    ui.monospace(format!("{}",self.mb_yields[0].0) );
-                    ui.monospace(format!("{}",self.mb_yields[1].0) );
-                    ui.monospace(format!("{}",self.mb_yields[2].0) );
-                });
-
-                ui.add(egui::Separator::default().vertical());
-
-                ui.vertical(|ui| {
-                    ui.monospace("NOK");
-                    ui.monospace(format!("{}",self.mb_yields[0].1) );
-                    ui.monospace(format!("{}",self.mb_yields[1].1) );
-                    ui.monospace(format!("{}",self.mb_yields[2].1) );
-                });
-
-                ui.add(egui::Separator::default().vertical());
-
-                ui.vertical(|ui| {
-                    ui.monospace("%");
-                    ui.monospace(format!("{0:.2}",self.mb_yields[0].precentage()) );
-                    ui.monospace(format!("{0:.2}",self.mb_yields[1].precentage()) );
-                    ui.monospace(format!("{0:.2}",self.mb_yields[2].precentage()) );
-                });
-            });
 
             // Failure list:
             
@@ -558,9 +553,9 @@ impl eframe::App for MyApp {
                             for fail in &self.failures {
                                 body.row(20.0, |mut row| {
                                     row.col(|ui| {
-                                        if ui.button(fail.name.to_owned()).clicked() {
+                                        if ui.add(egui::Label::new(fail.name.to_owned()).sense(Sense::click())).clicked() {
                                             self.selected_test = fail.test_id;
-                                            self.mode = AppMode::Plot;
+                                            self.mode = AppMode::Plot;                                            
                                         }
                                     });
                                     row.col(|ui| {

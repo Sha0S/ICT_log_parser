@@ -8,19 +8,20 @@ const SHIFT: usize = 2;
 const A_DAY: usize = 3;
 const LOAD: usize = 4;
 const YIELD: usize = 5;
-const MB_YIELD: usize = 6;
+//const MB_YIELD: usize = 6;
 const FIRST_T: usize = 7;
 const AFTER_RT: usize = 8;
 const TOTAL: usize = 9;
 const FAILURES: usize = 10;
 const PCS: usize = 11;
+const AUTO_UPDATE: usize = 12;
 
-const MESSAGE:  [[&str;2];12] = [
+const MESSAGE:  [[&str;2];13] = [
     ["Váltás magyar nyelvre!",  "Language changed to English!"],
     ["Logok betöltése",         "Loadings logs"],
     ["Műszak",                  "Shift"],
     ["24ó",                     "24h"],
-    ["Betölt",                  "Load"],
+    ["Betöltés",                "Load"],
     ["Kihozatal:",              "Yield:"],
     ["Multiboard:",             "As multiboards:"],
     ["Első teszt után:",        "After first test:"],
@@ -28,6 +29,7 @@ const MESSAGE:  [[&str;2];12] = [
     ["Összes teszt:",           "All test:"],
     ["Kiesők",                  "Failures"],
     ["db",                      "pcs"],
+    ["Automata frissítés:",     "Automatic update:"]
 ];
 
 // EXPORT:
