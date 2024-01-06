@@ -24,7 +24,6 @@ include!("locals.rs");
 /*
 Currently in the _t functions it checks if the last modification to the files is between the limits. 
 This wasn't the original behaviour, but it should be fine? It is also really fast.
-If preformance is an issue, then maybe we could add some filtering to the sub-directories..?
 */
 
 fn get_logs_in_path(p: &Path) -> Result<Vec<(PathBuf,u64)>,std::io::Error> {
@@ -77,6 +76,26 @@ fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -
     }
 
 	Ok(ret)
+}
+
+// It won't read sub-directories
+fn get_logs_since_t(p: &Path, start: DateTime<Local>) -> Result<Vec<PathBuf>,std::io::Error> {
+    let mut ret: Vec<PathBuf> = Vec::new();
+
+	for file in fs::read_dir(p)? {
+        let file = file?;
+        let path = file.path();
+        if !path.is_dir() {
+            if let Ok(x) = path.metadata() {
+                let ct: DateTime<Local> = x.modified().unwrap().into();
+                if ct >= start {
+                    ret.push( path.to_path_buf() );
+                }
+            }
+        }
+    }
+
+    Ok(ret)
 }
 
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
@@ -157,8 +176,25 @@ enum YieldMode {
     SingleBoard,
     MultiBoard
 }
-//#[derive(Default)]
-struct MyApp {
+
+struct AutoUpdate{
+    usable: bool,
+    enabled: bool,
+    product: Option<usize>,
+    last_scan_time: Option<DateTime<Local>>
+}
+
+impl AutoUpdate {
+    fn clear(&mut self) {
+        self.usable = false;
+        self.enabled = false;
+        self.product = None;
+        self.last_scan_time = None;
+    }
+}
+
+
+struct MyApp{
     status: String,
     lang: usize,
     selected_product: usize,
@@ -174,7 +210,7 @@ struct MyApp {
     time_end_string: String, 
     time_end_use: bool,
 
-    auto_update: bool,
+    auto_update: AutoUpdate,
 
     loading: bool,
     progress_x: Arc<RwLock<u32>>,
@@ -197,7 +233,7 @@ struct MyApp {
     export_settings: ExportSettings,
 }
 
-impl Default for MyApp {
+impl Default  for MyApp {
     fn default() -> Self {
         let time_start = NaiveTime::from_hms_opt(0,0,0).unwrap();
         let time_end = NaiveTime::from_hms_opt(23,59,59).unwrap();
@@ -218,7 +254,12 @@ impl Default for MyApp {
             time_end_string: time_end.format("%H:%M:%S").to_string(),
             time_end_use: true,
 
-            auto_update: false,
+            auto_update: AutoUpdate {
+                usable: false,
+                enabled: false,
+                product: None,
+                last_scan_time: None
+            },
 
             loading: false,
             progress_x: Arc::new(RwLock::new(0)),
@@ -259,6 +300,7 @@ impl eframe::App for MyApp {
                         self.hourly_stats.clear();
                         self.multiboard_results.clear();
                         self.selected_test = 0;
+                        self.auto_update.clear();
                         *self.progress_x.write().unwrap() = 0;
                         *self.progress_m.write().unwrap() = 1;
 
@@ -406,6 +448,17 @@ impl eframe::App for MyApp {
                         self.loading = true;
                         self.hourly_stats.clear();
                         self.multiboard_results.clear();
+
+                        if !self.time_end_use {
+                            self.auto_update.enabled = false;
+                            self.auto_update.usable = true;
+                            self.auto_update.product = Some(self.selected_product);
+                            self.auto_update.last_scan_time = Some(Local::now());
+                        } else {
+                            self.auto_update.clear();
+                        }
+
+                        
                         self.selected_test = 0;
                         *self.progress_x.write().unwrap() = 0;
                         *self.progress_m.write().unwrap() = 1;
@@ -438,10 +491,10 @@ impl eframe::App for MyApp {
             });
 
             ui.horizontal(|ui| {
-                ui.set_enabled(false); // Not yet implemented WIP
+                ui.set_enabled(self.auto_update.usable); // Not yet implemented WIP
 
                 ui.monospace(MESSAGE[AUTO_UPDATE][self.lang]);
-                ui.add(egui::Checkbox::without_text(&mut self.auto_update));
+                ui.add(egui::Checkbox::without_text(&mut self.auto_update.enabled));
             });
             
 
@@ -478,6 +531,36 @@ impl eframe::App for MyApp {
                     self.multiboard_results = lock.get_mb_results();
 
                     ctx.request_repaint();
+                }
+            } else if self.auto_update.enabled {
+                let t_old = self.auto_update.last_scan_time.unwrap();
+                let t_now = Local::now();
+                let time_diff = t_now - t_old;
+
+                if time_diff.num_seconds() >= 60 {
+                    self.auto_update.last_scan_time = Some(t_now);
+                    if let Some(product) = self.product_list.get(self.selected_product) {
+
+                        if let Ok(file_list) = get_logs_since_t( Path::new(&product.path), t_old) {
+
+                            let mut lock = self.log_master.write().unwrap();
+
+                            for log in file_list.iter() {
+                               lock.push_from_file(&log);
+                                
+                            }
+
+                            /* ToDo: implement more efficient functions for only adding few logs */
+                            lock.update();
+                            self.yields = lock.get_yields();
+                            self.mb_yields = lock.get_mb_yields();
+                            self.failures = lock.get_failures();
+                            self.hourly_stats = lock.get_hourly_mb_stats();
+                            self.multiboard_results = lock.get_mb_results();
+
+                            ctx.request_repaint();
+                        }
+                    }
                 }
             }
 
