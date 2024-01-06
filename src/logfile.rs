@@ -42,7 +42,7 @@ fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (Strin
 }
 
 // YYMMDDhhmmss => YY.MM.DD. hh:mm:ss
-fn u64_to_string(mut x: u64) -> String {
+pub fn u64_to_string(mut x: u64) -> String {
     let YY = x/u64::pow(10, 10);
     x = x % u64::pow(10, 10);
 
@@ -210,6 +210,22 @@ impl BResult {
         }
 
         String::from("Fail")
+    }
+
+    pub fn to_color(&self) -> egui::Color32 {
+        match self {
+            BResult::Pass => egui::Color32::GREEN,
+            BResult::Fail => egui::Color32::RED,
+            BResult::Unknown => egui::Color32::YELLOW
+        }
+    }
+
+    pub fn to_dark_color(&self) -> egui::Color32 {
+        match self {
+            BResult::Pass => egui::Color32::DARK_GREEN,
+            BResult::Fail => egui::Color32::RED,
+            BResult::Unknown => egui::Color32::BLACK
+        }
     }
 }
 
@@ -746,7 +762,7 @@ impl MultiBoard {
             }
         }
 
-        // At the end we have to update the 2nd filed of the results.
+        // At the end we have to update the 2nd field of the results.
         for res in &mut self.results {
             let mut all_ok = true;
             let mut has_unknown = false;
@@ -772,6 +788,10 @@ impl MultiBoard {
         self.results.sort_by_key(|k| k.0);
     }
 
+    fn get_results(&self) -> &Vec<(u64,BResult,Vec<BResult>)> {
+        &self.results
+    }
+    
     fn get_failures(&self) -> Vec<(usize, usize)> {
         let mut failures: Vec<(usize, usize)> = Vec::new(); // (test number, board index)
 
@@ -1100,6 +1120,21 @@ impl LogFileHandler {
             r.3.sort_by_key(|k| k.1);
         }
 
+        ret
+    }
+
+    // Returns the result of eaxh mb. Format: (DMC, Vec<(test_time, mb_result, Vec<board_result>)>)
+    pub fn get_mb_results(&self) -> Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)> {
+        let mut ret: Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)> = Vec::new();
+
+        for mb in &self.multiboards {
+            ret.push((
+                mb.DMC.clone(),
+                mb.get_results().clone()
+            ));
+        }
+
+        ret.sort_by_key(|k| k.1.last().unwrap().0);
         ret
     }
 

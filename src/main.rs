@@ -9,7 +9,7 @@ use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime, DateTime};
 
 mod logfile;
-use logfile::{ExportMode, ExportSettings,LogFileHandler, Yield, FailureList, BResult, TResult, TLimit, TType};
+use logfile::*;
 
 use std::fs;
 use std::ops::RangeInclusive;
@@ -18,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 
-const VERSION: &str = "v2.0.1";
+const VERSION: &str = "v2.1.0";
 include!("locals.rs");
 
 /*
@@ -148,6 +148,7 @@ enum AppMode {
     None,
     Plot,
     Hourly,
+    Multiboards,
     Export
 }
 
@@ -187,6 +188,7 @@ struct MyApp {
     mode: AppMode,
 
     hourly_stats: Vec<(u64,usize,usize,Vec<(BResult,u64)>)>,
+    multiboard_results: Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)>,
 
     selected_test: usize,
     selected_test_tmp: usize,
@@ -229,6 +231,7 @@ impl Default for MyApp {
 
             mode: AppMode::None,
             hourly_stats: Vec::new(),
+            multiboard_results: Vec::new(),
 
             selected_test: 0,
             selected_test_tmp: 0,
@@ -254,6 +257,7 @@ impl eframe::App for MyApp {
                     if let Some(input_path) = rfd::FileDialog::new().pick_folder() {
                         self.loading = true;
                         self.hourly_stats.clear();
+                        self.multiboard_results.clear();
                         self.selected_test = 0;
                         *self.progress_x.write().unwrap() = 0;
                         *self.progress_m.write().unwrap() = 1;
@@ -401,6 +405,7 @@ impl eframe::App for MyApp {
 
                         self.loading = true;
                         self.hourly_stats.clear();
+                        self.multiboard_results.clear();
                         self.selected_test = 0;
                         *self.progress_x.write().unwrap() = 0;
                         *self.progress_m.write().unwrap() = 1;
@@ -470,6 +475,7 @@ impl eframe::App for MyApp {
                     self.mb_yields = lock.get_mb_yields();
                     self.failures = lock.get_failures();
                     self.hourly_stats = lock.get_hourly_mb_stats();
+                    self.multiboard_results = lock.get_mb_results();
 
                     ctx.request_repaint();
                 }
@@ -598,6 +604,10 @@ impl eframe::App for MyApp {
 
                 if ui.button(MESSAGE_H[HOURLY_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Hourly;
+                }
+
+                if ui.button(MESSAGE_H[MULTI_LABEL][self.lang]).clicked() {
+                    self.mode = AppMode::Multiboards;
                 }
 
                 if ui.button(MESSAGE_P[PLOT_LABEL][self.lang]).clicked() {
@@ -750,50 +760,101 @@ impl eframe::App for MyApp {
 
             if self.mode == AppMode::Hourly {
                 if !self.hourly_stats.is_empty() {
-                    TableBuilder::new(ui)
-                    .striped(true)
-                    .column(Column::initial(200.0).resizable(true))
-                    .column(Column::initial(50.0).resizable(true))
-                    .column(Column::initial(50.0).resizable(true))
-                    .column(Column::auto().resizable(true))
-                    .header(20.0, |mut header| {
-                        header.col(|ui| {
-                            ui.heading(MESSAGE_H[TIME][self.lang]);
-                        });
-                        header.col(|ui| {
-                            ui.heading("OK");
-                        });
-                        header.col(|ui| {
-                            ui.heading("NOK");
-                        });
-                        header.col(|ui| {
-                            ui.heading(MESSAGE_H[RESULTS][self.lang]);
-                        });
-                    })
-                    .body(|mut body| {
-                        for hour in &self.hourly_stats {
-                            body.row(20.0, |mut row| {
-                                row.col(|ui| {
-                                    ui.label(u64_to_timeframe(hour.0));
-                                });
-                                row.col(|ui| {
-                                    ui.label(format!("{}", hour.1));
-                                });
-                                row.col(|ui| {
-                                    ui.label(format!("{}", hour.2));
-                                });
-                                row.col(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
-                                        for (r,_) in &hour.3 {
-                                            ui.label(RichText::new("■").color(
-                                                if *r==BResult::Fail { Color32::RED } else { Color32::GREEN }
-                                            ));
-                                        }
+                    ui.push_id("hourly", |ui| {
+                        TableBuilder::new(ui)
+                        .striped(true)
+                        .column(Column::initial(150.0).resizable(true))
+                        .column(Column::initial(50.0).resizable(true))
+                        .column(Column::initial(50.0).resizable(true))
+                        .column(Column::auto().resizable(true))
+                        .header(20.0, |mut header| {
+                            header.col(|ui| {
+                                ui.heading(MESSAGE_H[TIME][self.lang]);
+                            });
+                            header.col(|ui| {
+                                ui.heading("OK");
+                            });
+                            header.col(|ui| {
+                                ui.heading("NOK");
+                            });
+                            header.col(|ui| {
+                                ui.heading(MESSAGE_H[RESULTS][self.lang]);
+                            });
+                        })
+                        .body(|mut body| {
+                            for hour in &self.hourly_stats {
+                                body.row(15.0, |mut row| {
+                                    row.col(|ui| {
+                                        ui.label(u64_to_timeframe(hour.0));
+                                    });
+                                    row.col(|ui| {
+                                        ui.label(format!("{}", hour.1));
+                                    });
+                                    row.col(|ui| {
+                                        ui.label(format!("{}", hour.2));
+                                    });
+                                    row.col(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
+                                            for (r,_) in &hour.3 {
+                                                ui.label(RichText::new("■").color(
+                                                    r.to_color()
+                                                ));
+                                            }
+                                        });
                                     });
                                 });
-                            });
-                        }
+                            }
+                        });
+                    });
+                }
+            }
+
+            if self.mode == AppMode::Multiboards {
+                if !self.multiboard_results.is_empty() {
+                    ui.push_id("multib", |ui| {
+                        TableBuilder::new(ui)
+                        .striped(true)
+                        .column(Column::initial(40.0).resizable(true))
+                        .column(Column::initial(200.0).resizable(true))
+                        .column(Column::initial(130.0).resizable(true))
+                        .column(Column::auto().resizable(true))
+                        .body(|mut body| {
+                            for (i, mb) in self.multiboard_results.iter().enumerate() {
+                                let color_mb = mb.1.last().unwrap().1.to_dark_color();
+                                for (i2, sb) in mb.1.iter().enumerate() {
+                                    let color_sb = sb.1.to_dark_color();
+                                    body.row(15.0, |mut row| {
+                                        row.col(|ui| {
+                                            if i2 == 0 {
+                                                //ui.label(format!("{}.", i+1));
+                                                ui.label(egui::RichText::new(format!("{}.", i+1)).color(color_mb));
+                                            }
+                                        });
+                                        row.col(|ui| {
+                                            if i2 == 0 {
+                                                //ui.label(mb.0.clone());
+                                                ui.label(egui::RichText::new(mb.0.clone()).color(color_mb));
+                                            }
+                                        });
+                                        row.col(|ui| {
+                                                //ui.label(u64_to_string( sb.0));
+                                                ui.label(egui::RichText::new(u64_to_string( sb.0)).color(color_sb));
+                                        });
+                                        row.col(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
+                                                for r in &sb.2 {
+                                                    ui.label(RichText::new("■").color(
+                                                        r.to_color()
+                                                    ));
+                                                }
+                                            });
+                                        });
+                                    });
+                                }
+                            }
+                        });
                     });
                 }
             }

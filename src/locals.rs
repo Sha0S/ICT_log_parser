@@ -61,16 +61,18 @@ const MESSAGE_E: [[&str;2];11] = [
     ["Mentés",                  "Save"]
 ];
 
-// HOURLY:
+// HOURLY + MULTIBOARDS:
 
 const HOURLY_LABEL: usize = 0;
 const TIME: usize = 1;
 const RESULTS: usize = 2;
+const MULTI_LABEL: usize = 3;
 
-const MESSAGE_H: [[&str;2];3] = [
+const MESSAGE_H: [[&str;2];4] = [
     ["⌚ Óránként",                "⌚ Hourly"],
     ["Időintervallum",          "Timeframe"],
-    ["Eredmények",              "Results"]
+    ["Eredmények",              "Results"],
+    ["⌗ Multiboard-ok",           "⌗ Multiboards"],
 ];
 
 // PLOT:
