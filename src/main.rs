@@ -6,7 +6,7 @@ use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense};
 use egui_extras::{TableBuilder, Column};
 use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
 
-use chrono::{NaiveDate, NaiveTime, Timelike, Local, NaiveDateTime, DateTime};
+use chrono::*;
 
 mod logfile;
 use logfile::*;
@@ -68,7 +68,7 @@ fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -
 			}
         } else {
             if let Ok(x) = path.metadata() {
-                let ct: chrono::DateTime<Local> = x.modified().unwrap().into();
+                let ct: DateTime<Local> = x.modified().unwrap().into();
                 if ct >= start && ct < end {
                     ret.push( (path.to_path_buf(), x.len()) );
                 }
@@ -199,8 +199,8 @@ struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-        let time_start = chrono::NaiveTime::from_hms_opt(0,0,0).unwrap();
-        let time_end = chrono::NaiveTime::from_hms_opt(23,59,59).unwrap();
+        let time_start = NaiveTime::from_hms_opt(0,0,0).unwrap();
+        let time_end = NaiveTime::from_hms_opt(23,59,59).unwrap();
 
         Self {
             status: "".to_owned(),
@@ -209,8 +209,8 @@ impl Default for MyApp {
             selected_product: 0,
             log_master: Arc::new(RwLock::new(LogFileHandler::new())),
 
-            date_start: chrono::Local::now().date_naive(),  
-            date_end: chrono::Local::now().date_naive(),
+            date_start: Local::now().date_naive(),  
+            date_end: Local::now().date_naive(),
 
             time_start,
             time_start_string: time_start.format("%H:%M:%S").to_string(),
@@ -329,22 +329,22 @@ impl eframe::App for MyApp {
                 }
 
                 if ui.button(MESSAGE[SHIFT][self.lang]).clicked() {
-                    self.date_start = chrono::Local::now().date_naive();
-                    self.date_end = chrono::Local::now().date_naive();
+                    self.date_start = Local::now().date_naive();
+                    self.date_end = Local::now().date_naive();
 
-                    let time_now = chrono::Local::now().naive_local();
+                    let time_now = Local::now().naive_local();
                     let hours_now = time_now.hour();
                     if 6 <= hours_now && hours_now < 14 {
-                        self.time_start = chrono::NaiveTime::from_hms_opt(6,0,0).unwrap();
-                        self.time_end = chrono::NaiveTime::from_hms_opt(13,59,59).unwrap();
+                        self.time_start = NaiveTime::from_hms_opt(6,0,0).unwrap();
+                        self.time_end = NaiveTime::from_hms_opt(13,59,59).unwrap();
                     } else if 14 <= hours_now && hours_now < 22  {
-                        self.time_start = chrono::NaiveTime::from_hms_opt(14,0,0).unwrap();
-                        self.time_end = chrono::NaiveTime::from_hms_opt(21,59,59).unwrap();
+                        self.time_start = NaiveTime::from_hms_opt(14,0,0).unwrap();
+                        self.time_end = NaiveTime::from_hms_opt(21,59,59).unwrap();
                     } else {
                         if hours_now < 6 {
                             self.date_start = self.date_start.pred_opt().unwrap(); }
-                            self.time_start = chrono::NaiveTime::from_hms_opt(22,0,0).unwrap();
-                            self.time_end = chrono::NaiveTime::from_hms_opt(5,59,59).unwrap();
+                            self.time_start = NaiveTime::from_hms_opt(22,0,0).unwrap();
+                            self.time_end = NaiveTime::from_hms_opt(5,59,59).unwrap();
                     }
 
                     self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
@@ -352,10 +352,10 @@ impl eframe::App for MyApp {
                 }
 
                 if ui.button(MESSAGE[A_DAY][self.lang]).clicked() {
-                    self.date_start = chrono::Local::now().date_naive().pred_opt().unwrap();
-                    self.time_start = chrono::Local::now().time();
-                    self.date_end = chrono::Local::now().date_naive();
-                    self.time_end = chrono::Local::now().time();
+                    self.date_start = Local::now().date_naive().pred_opt().unwrap();
+                    self.time_start = Local::now().time();
+                    self.date_end = Local::now().date_naive();
+                    self.time_end = Local::now().time();
 
                     self.time_start_string = self.time_start.format("%H:%M:%S").to_string();
                     self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
@@ -389,17 +389,17 @@ impl eframe::App for MyApp {
                         let input_path = product.path.clone();
 
                         let start_dt =
-                            chrono::TimeZone::from_local_datetime(&Local, 
+                            TimeZone::from_local_datetime(&Local, 
                             &NaiveDateTime::new(self.date_start, self.time_start))
                             .unwrap();
 
                         let end_dt = {
                             if self.time_end_use {
-                                chrono::TimeZone::from_local_datetime(&Local, 
+                                TimeZone::from_local_datetime(&Local, 
                                     &NaiveDateTime::new(self.date_end, self.time_end))
                                     .unwrap()
                             } else {
-                                chrono::Local::now()
+                                Local::now()
                             }
                         };
 
