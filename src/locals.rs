@@ -25,8 +25,8 @@ const MESSAGE:  [[&str;2];13] = [
     ["Kihozatal:",              "Yield:"],
     ["Multiboard:",             "As multiboards:"],
     ["Első teszt után:",        "After first test:"],
-    ["Végső kihozatal:",        "After retest:"],
-    ["Összes teszt:",           "All test:"],
+    ["Re-teszt után:",          "After retest:"],
+    ["Összes teszt:",           "All tests:"],
     ["Kiesők",                  "Failures"],
     ["db",                      "pcs"],
     ["Automata frissítés:",     "Automatic update:"]
