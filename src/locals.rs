@@ -45,8 +45,10 @@ const EXPORT_MODE_MANUAL: usize = 7;
 const EXPORT_MANUAL: usize = 8;
 const EXPORT_MANUAL_EX: usize = 9;
 const SAVE: usize = 10;
+const LIMIT_W:  usize = 11;
+const LIMIT_W2:  usize = 12;
 
-const MESSAGE_E: [[&str;2];11] = [
+const MESSAGE_E: [[&str;2];13] = [
     ["💾 Export",                  "💾 Export"],
     ["Beállítások:",            "Settings:"],
     ["Vertikális elrendezés (1 sor = 1 log/pcb)",   "Vertical orientation (1 row = 1 log/pcb)"],
@@ -58,7 +60,9 @@ const MESSAGE_E: [[&str;2];11] = [
     ["Kiválasztott tesztek:",    "Selected tests:"],
     ["Egy szóközzel válassza el a kívánt teszteket: Példa: \"c613 r412 v605%ON\"", 
                                 "Separate tests with a space. Example: \"c613 r412 v605%ON\""],
-    ["Mentés",                  "Save"]
+    ["Mentés",                  "Save"],
+    ["Figyelmeztetés: teszt",                                   "Warning: test"],
+    ["limitje változott! Ez a táblázatban nem lesz látható!",   "has limit changes! This won't be visile in the spreadsheet!"]
 ];
 
 // HOURLY + MULTIBOARDS:

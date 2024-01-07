@@ -100,7 +100,7 @@ impl Yield {
     }
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,PartialEq)]
 pub enum TLimit {
     None,
     Lim2 (f32,f32),     // UL - LL
@@ -1172,6 +1172,53 @@ impl LogFileHandler {
         (self.testlist[testid].1,resultlist)
     }
 
+    pub fn get_tests_w_limit_changes(&self) -> Option<Vec<(usize, String)>> {
+        let mut ret: Vec<(usize, String)> = Vec::new();
+
+        'outerloop: for (i, (tname, ttype)) in self.testlist.iter().enumerate() {
+            match ttype {
+                // These tests have no "limit" by default, skip them
+                TType::BoundaryS => continue,
+                TType::Digital => continue,
+                TType::Pin => continue,
+                TType::Shorts => continue,
+                TType::Testjet => continue,
+                TType::Unknown => {
+                    // this shouldn't happen
+                    println!("ERR: TType::Unknown in the final testlist at #{i}, name {tname}" );
+                }
+                _ => {
+                    let mut limit: Option<&TLimit> = None;
+                    for mb in &self.multiboards {
+                        for sb in &mb.boards {
+                            for log in &sb.logs {
+                                if let Some(test) = log.limits.get(i) {
+                                    if *test == TLimit::None {
+                                        continue;
+                                    }
+                                    if limit.is_none() {
+                                        limit = Some(test)
+                                    } else {
+                                        if *limit.unwrap() != *test {
+                                            println!("INFO: Test {tname} has limit changes in the sample");
+                                            ret.push((i, tname.clone()));
+                                            continue 'outerloop;
+                                        }
+                                    }                                    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if ret.is_empty() {
+            None
+        } else {
+            Some(ret)
+        }
+    }
     // We don't check here if the limits have changed. 
     // Can't properly show than in a spreadsheet anyway. 
     // We will notify the user about it in the UI only.
@@ -1194,7 +1241,11 @@ impl LogFileHandler {
             }
         }
 
-        Some(ret)
+        if ret.is_empty() {
+            None
+        } else {
+            Some(ret)
+        }
     }
 
     fn get_export_list(&self, settings: &ExportSettings) -> Vec<usize> {

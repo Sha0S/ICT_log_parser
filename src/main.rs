@@ -18,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 
-const VERSION: &str = "v2.1.0";
+const VERSION: &str = "v2.1.1";
 include!("locals.rs");
 
 /*
@@ -220,6 +220,7 @@ struct MyApp{
     yields: [Yield;3],
     mb_yields: [Yield;3],
     failures: Vec<FailureList>,
+    limitchanges: Option<Vec<(usize, String)>>,
 
     mode: AppMode,
 
@@ -269,6 +270,7 @@ impl Default  for MyApp {
             yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
             mb_yields: [Yield(0,0), Yield(0,0), Yield(0,0)],
             failures: Vec::new(),
+            limitchanges: None,
 
             mode: AppMode::None,
             hourly_stats: Vec::new(),
@@ -529,6 +531,7 @@ impl eframe::App for MyApp {
                     self.failures = lock.get_failures();
                     self.hourly_stats = lock.get_hourly_mb_stats();
                     self.multiboard_results = lock.get_mb_results();
+                    self.limitchanges = lock.get_tests_w_limit_changes();
 
                     ctx.request_repaint();
                 }
@@ -557,6 +560,8 @@ impl eframe::App for MyApp {
                             self.failures = lock.get_failures();
                             self.hourly_stats = lock.get_hourly_mb_stats();
                             self.multiboard_results = lock.get_mb_results();
+                            self.limitchanges = lock.get_tests_w_limit_changes();
+
 
                             ctx.request_repaint();
                         }
@@ -967,6 +972,22 @@ impl eframe::App for MyApp {
                     .set_file_name("out.xlsx")
                     .save_file() {
                         self.log_master.read().unwrap().export(path, &self.export_settings);
+                    }
+                }
+
+                // If there are tests with limit changes, then notify the user
+                if let Some(changed_tests) = &self.limitchanges {
+                    ui.add_space(10.0);
+                    for (id, name) in changed_tests {
+                        if ui.add(egui::Label::new( 
+                                egui::RichText::new(
+                                    format!("{} {} {}", MESSAGE_E[LIMIT_W][self.lang], name, MESSAGE_E[LIMIT_W2][self.lang]))
+                                    .color(Color32::RED)
+                                    .size(14.0)
+                            ).sense(Sense::click())).clicked() {
+                                self.selected_test = *id;
+                                self.mode = AppMode::Plot;  
+                        }
                     }
                 }
             }
