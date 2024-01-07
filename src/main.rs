@@ -172,10 +172,8 @@ enum AppMode {
 }
 
 #[derive(PartialEq)]
-enum YieldMode {
-    SingleBoard,
-    MultiBoard
-}
+enum YieldMode { SingleBoard, MultiBoard }
+enum LoadMode { Folder(PathBuf), ProductList(String) }
 
 struct AutoUpdate{
     usable: bool,
@@ -285,6 +283,98 @@ impl Default  for MyApp {
     }
 }
 
+impl MyApp {
+    fn update_stats(&mut self, ctx: &egui::Context) {
+        let mut lock = self.log_master.write().unwrap();
+
+        lock.update();
+        self.yields = lock.get_yields();
+        self.mb_yields = lock.get_mb_yields();
+        self.failures = lock.get_failures();
+        self.hourly_stats = lock.get_hourly_mb_stats();
+        self.multiboard_results = lock.get_mb_results();
+        self.limitchanges = lock.get_tests_w_limit_changes();
+
+        ctx.request_repaint();
+    }
+
+    // Do I even need to clear these? 
+    fn clear_stats(&mut self) {
+        self.hourly_stats.clear();
+        self.multiboard_results.clear();
+        self.auto_update.clear();
+        self.selected_test = 0;
+        *self.progress_x.write().unwrap() = 0;
+        *self.progress_m.write().unwrap() = 1;
+    }
+
+    fn load_logs(&mut self, ctx: &egui::Context, mode: LoadMode) {
+        //let input_path = product.path.clone();
+
+        let input_path = match mode {
+            LoadMode::Folder(ref x) => x.clone(),
+            LoadMode::ProductList(ref x) => PathBuf::from(x)
+        };
+
+        
+        let start_dt =
+            TimeZone::from_local_datetime(&Local, 
+            &NaiveDateTime::new(self.date_start, self.time_start))
+            .unwrap();
+
+        let end_dt = {
+            if self.time_end_use {
+                TimeZone::from_local_datetime(&Local, 
+                    &NaiveDateTime::new(self.date_end, self.time_end))
+                    .unwrap()
+            } else {
+                Local::now()
+            }
+        };
+
+        self.loading = true;
+        self.clear_stats();
+
+        if matches!(mode, LoadMode::ProductList(_)) {
+            if !self.time_end_use {
+                self.auto_update.enabled = false;
+                self.auto_update.usable = true;
+                self.auto_update.product = Some(self.selected_product);
+                self.auto_update.last_scan_time = Some(Local::now());
+            }
+        }
+
+        let lb_lock = self.log_master.clone();
+        let pm_lock = self.progress_m.clone();
+        let px_lock = self.progress_x.clone();
+        let frame = ctx.clone();
+
+        let logs_result = match mode {
+            LoadMode::Folder(_) => get_logs_in_path(&input_path),
+            LoadMode::ProductList(_) => get_logs_in_path_t(&input_path, start_dt, end_dt)
+        };
+
+        thread::spawn(move || {
+            if let Ok(mut logs) = logs_result {
+                *pm_lock.write().unwrap() = logs.len() as u32;
+                (*lb_lock.write().unwrap()).clear();
+                frame.request_repaint();
+
+                println!("Found {} logs to load.", logs.len());
+                logs.sort_by_key(|k| k.1);
+
+                for log in logs.iter().rev() {
+                    (*lb_lock.write().unwrap()).push_from_file(&log.0);
+                    *px_lock.write().unwrap() += 1;
+                    frame.request_repaint();
+                }
+            }
+        });
+    }
+
+
+}
+
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
@@ -298,42 +388,8 @@ impl eframe::App for MyApp {
 
                 if ui.button("📁").clicked() && !self.loading {
                     if let Some(input_path) = rfd::FileDialog::new().pick_folder() {
-                        self.loading = true;
-                        self.hourly_stats.clear();
-                        self.multiboard_results.clear();
-                        self.selected_test = 0;
-                        self.auto_update.clear();
-                        *self.progress_x.write().unwrap() = 0;
-                        *self.progress_m.write().unwrap() = 1;
-
-                        let lb_lock = self.log_master.clone();
-                        let pm_lock = self.progress_m.clone();
-                        let px_lock = self.progress_x.clone();
-                        let frame = ctx.clone();
-
-                        thread::spawn(move || {
-                            let p = Path::new(&input_path);
-                            
-                            if let Ok(mut logs) = get_logs_in_path(p) {
-                                *pm_lock.write().unwrap() = logs.len() as u32;
-                                (*lb_lock.write().unwrap()).clear();
-                                frame.request_repaint();
-
-                                println!("Found {} logs to load.", logs.len());
-
-                                // Sorting logs by SIZE, we want to load the biggest one first.
-                                logs.sort_by_key(|k| k.1);
-
-                                for log in logs.iter().rev() {
-                                    (*lb_lock.write().unwrap()).push_from_file(&log.0);
-                                    *px_lock.write().unwrap() += 1;
-                                    frame.request_repaint();
-                                }
-                            }
-                        });
+                        self.load_logs(ctx, LoadMode::Folder(input_path));
                     }
-
-                    
                 }
                 
                 egui::ComboBox::from_label("")
@@ -354,7 +410,6 @@ impl eframe::App for MyApp {
             ui.separator();
 
             // Date and time pickers:
-
             ui.horizontal(|ui| {
 
                 ui.add(egui_extras::DatePickerButton::new(&mut self.date_start).id_source("Starting time"));
@@ -372,6 +427,7 @@ impl eframe::App for MyApp {
                     }
                 }
 
+                // Set timeframe to this shift
                 if ui.button(MESSAGE[SHIFT][self.lang]).clicked() {
                     self.date_start = Local::now().date_naive();
                     self.date_end = Local::now().date_naive();
@@ -395,6 +451,7 @@ impl eframe::App for MyApp {
                     self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
                 }
 
+                // Set timeframe to the last 24h
                 if ui.button(MESSAGE[A_DAY][self.lang]).clicked() {
                     self.date_start = Local::now().date_naive().pred_opt().unwrap();
                     self.time_start = Local::now().time();
@@ -419,7 +476,7 @@ impl eframe::App for MyApp {
                                 self.time_end = new_t;
                             }
                             Err(_) => {
-                                println!("ERR: Failed to pares time string, reverting!");
+                                println!("ERR: Failed to parse time string, reverting!");
                                 self.time_end_string = self.time_end.format("%H:%M:%S").to_string();
                             }
                         }
@@ -430,70 +487,14 @@ impl eframe::App for MyApp {
                 
                 if ui.button(MESSAGE[LOAD][self.lang]).clicked() && !self.loading {
                     if let Some(product) = self.product_list.get(self.selected_product) {
-                        let input_path = product.path.clone();
-
-                        let start_dt =
-                            TimeZone::from_local_datetime(&Local, 
-                            &NaiveDateTime::new(self.date_start, self.time_start))
-                            .unwrap();
-
-                        let end_dt = {
-                            if self.time_end_use {
-                                TimeZone::from_local_datetime(&Local, 
-                                    &NaiveDateTime::new(self.date_end, self.time_end))
-                                    .unwrap()
-                            } else {
-                                Local::now()
-                            }
-                        };
-
-                        self.loading = true;
-                        self.hourly_stats.clear();
-                        self.multiboard_results.clear();
-
-                        if !self.time_end_use {
-                            self.auto_update.enabled = false;
-                            self.auto_update.usable = true;
-                            self.auto_update.product = Some(self.selected_product);
-                            self.auto_update.last_scan_time = Some(Local::now());
-                        } else {
-                            self.auto_update.clear();
-                        }
-
-                        
-                        self.selected_test = 0;
-                        *self.progress_x.write().unwrap() = 0;
-                        *self.progress_m.write().unwrap() = 1;
-
-                        let lb_lock = self.log_master.clone();
-                        let pm_lock = self.progress_m.clone();
-                        let px_lock = self.progress_x.clone();
-                        let frame = ctx.clone();
-
-                        thread::spawn(move || {
-                            let p = Path::new(&input_path);
-                            
-                            if let Ok(mut logs) = get_logs_in_path_t(p, start_dt, end_dt) {
-                                *pm_lock.write().unwrap() = logs.len() as u32;
-                                (*lb_lock.write().unwrap()).clear();
-                                frame.request_repaint();
-
-                                println!("Found {} logs to load.", logs.len());
-                                logs.sort_by_key(|k| k.1);
-
-                                for log in logs.iter().rev() {
-                                    (*lb_lock.write().unwrap()).push_from_file(&log.0);
-                                    *px_lock.write().unwrap() += 1;
-                                    frame.request_repaint();
-                                }
-                            }
-                        });
+                        self.load_logs(ctx, LoadMode::ProductList(product.path.clone()));
                     }
                 }
             });
 
+            // Auto-update checkbox
             ui.horizontal(|ui| {
-                ui.set_enabled(self.auto_update.usable); // Not yet implemented WIP
+                ui.set_enabled(self.auto_update.usable);
 
                 ui.monospace(MESSAGE[AUTO_UPDATE][self.lang]);
                 ui.add(egui::Checkbox::without_text(&mut self.auto_update.enabled));
@@ -501,20 +502,14 @@ impl eframe::App for MyApp {
             
 
             // Loading Bar
-
             if self.loading {
-
                 ui.separator();
 
                 let mut xx: u32 = 0;
                 let mut mm: u32 = 1;
 
-                if let Ok(m) = self.progress_m.try_read() {
-                    mm = *m;
-                }
-                if let Ok(x) = self.progress_x.try_read() {
-                    xx = *x;
-                } 
+                if let Ok(m) = self.progress_m.try_read() { mm = *m; }
+                if let Ok(x) = self.progress_x.try_read() { xx = *x; } 
             
                 ui.add(ProgressBar::new(xx as f32 / mm as f32));
 
@@ -522,20 +517,10 @@ impl eframe::App for MyApp {
 
                 if xx == mm {
                     self.loading =  false;
-
-                    let mut lock = self.log_master.write().unwrap();
-
-                    lock.update();
-                    self.yields = lock.get_yields();
-                    self.mb_yields = lock.get_mb_yields();
-                    self.failures = lock.get_failures();
-                    self.hourly_stats = lock.get_hourly_mb_stats();
-                    self.multiboard_results = lock.get_mb_results();
-                    self.limitchanges = lock.get_tests_w_limit_changes();
-
-                    ctx.request_repaint();
+                    self.update_stats(ctx);
                 }
             } else if self.auto_update.enabled {
+                // Auto update 
                 let t_old = self.auto_update.last_scan_time.unwrap();
                 let t_now = Local::now();
                 let time_diff = t_now - t_old;
@@ -545,32 +530,19 @@ impl eframe::App for MyApp {
                     if let Some(product) = self.product_list.get(self.selected_product) {
 
                         if let Ok(file_list) = get_logs_since_t( Path::new(&product.path), t_old) {
-
-                            let mut lock = self.log_master.write().unwrap();
-
+                            
                             for log in file_list.iter() {
-                               lock.push_from_file(&log);
-                                
+                                self.log_master.write().unwrap().push_from_file(&log);
                             }
-
+                            
                             /* ToDo: implement more efficient functions for only adding few logs */
-                            lock.update();
-                            self.yields = lock.get_yields();
-                            self.mb_yields = lock.get_mb_yields();
-                            self.failures = lock.get_failures();
-                            self.hourly_stats = lock.get_hourly_mb_stats();
-                            self.multiboard_results = lock.get_mb_results();
-                            self.limitchanges = lock.get_tests_w_limit_changes();
-
-
-                            ctx.request_repaint();
+                            self.update_stats(ctx);
                         }
                     }
                 }
             }
 
             // Statistics:
-
             ui.separator();
 
             ui.horizontal(|ui|{
@@ -594,9 +566,7 @@ impl eframe::App for MyApp {
                 let x = match self.yield_mode {
                     YieldMode::SingleBoard => &self.yields,
                     YieldMode::MultiBoard => &self.mb_yields,
-                };
-                    
-                
+                };  
 
                 ui.vertical(|ui| {
                     ui.monospace("OK");
@@ -624,9 +594,7 @@ impl eframe::App for MyApp {
                 });
             });
 
-
             // Failure list:
-            
             if !self.failures.is_empty() {
                 ui.vertical(|ui| {
                     ui.separator();
@@ -659,10 +627,10 @@ impl eframe::App for MyApp {
                             }
                         });
                 });
-
             }
         });
             
+        // Status panel + language change
         egui::TopBottomPanel::bottom("Status_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.add(ImageButton::new(egui::include_image!("../res/HU.png"))).clicked() {
@@ -681,7 +649,6 @@ impl eframe::App for MyApp {
         });
         
         // Central panel
-
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.loading);
 
@@ -706,6 +673,7 @@ impl eframe::App for MyApp {
 
             ui.separator();
 
+            // Plot mode
             if self.mode == AppMode::Plot {
                 let lfh = self.log_master.read().unwrap();
                 let testlist = lfh.get_testlist();
@@ -846,6 +814,7 @@ impl eframe::App for MyApp {
                 }
             }
 
+            // Hourly mode
             if self.mode == AppMode::Hourly {
                 if !self.hourly_stats.is_empty() {
                     ui.push_id("hourly", |ui| {
@@ -898,6 +867,7 @@ impl eframe::App for MyApp {
                 }
             }
 
+            // Multiboards mode
             if self.mode == AppMode::Multiboards {
                 if !self.multiboard_results.is_empty() {
                     ui.push_id("multib", |ui| {
@@ -947,6 +917,7 @@ impl eframe::App for MyApp {
                 }
             }
             
+            // Export mode
             if self.mode == AppMode::Export {
                 ui.heading(MESSAGE_E[SETTINGS][self.lang]);
                 ui.checkbox(&mut self.export_settings.vertical, MESSAGE_E[VERTICAL_O][self.lang]);
