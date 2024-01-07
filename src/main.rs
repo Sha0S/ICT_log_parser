@@ -18,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 
-const VERSION: &str = "v2.1.1";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 include!("locals.rs");
 
 /*
