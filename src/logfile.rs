@@ -205,11 +205,11 @@ impl From<&str> for BResult {
 
 impl BResult {
     pub fn print(&self) -> String {
-        if matches!(self, BResult::Pass) {
-            return String::from("Pass")
+        match self {
+            BResult::Pass => String::from("Pass"),
+            BResult::Fail => String::from("Fail"),
+            BResult::Unknown => String::from("NA")
         }
-
-        String::from("Fail")
     }
 
     pub fn to_color(&self) -> egui::Color32 {
@@ -587,6 +587,10 @@ impl Board {
         true
     }
 
+    fn update(&mut self) {
+        self.logs.sort_by_key(|k| k.time_s);
+    }
+
     fn all_ok(&self) -> bool {
         for l in &self.logs {
             if l.result == BResult::Fail {
@@ -613,8 +617,10 @@ impl Board {
             // Print measurement results
             for (i,t) in export_list.iter().enumerate() {
                 if let Some(res) = l.results.get(*t) {
-                    sheet.get_cell_mut((c, 4+(i as u32))).set_value(res.0.print());
-                    sheet.get_cell_mut((c+1, 4+(i as u32))).set_value_number(res.1);
+                    if res.0 != BResult::Unknown {
+                        sheet.get_cell_mut((c, 4+(i as u32))).set_value(res.0.print());
+                        sheet.get_cell_mut((c+1, 4+(i as u32))).set_value_number(res.1);
+                    }
                 }
                 
             }
@@ -641,9 +647,11 @@ impl Board {
             // Print measurement results
             for (i,t) in export_list.iter().enumerate() {
                 if let Some(res) = log.results.get(*t) {
-                    let c = i as u32 * 2 + 4;
-                    sheet.get_cell_mut((c  , l )).set_value(res.0.print());
-                    sheet.get_cell_mut((c+1, l )).set_value_number(res.1);
+                    if res.0 != BResult::Unknown {
+                        let c = i as u32 * 2 + 4;
+                        sheet.get_cell_mut((c  , l )).set_value(res.0.print());
+                        sheet.get_cell_mut((c+1, l )).set_value_number(res.1);
+                    }
                 }
                 
             }
@@ -693,13 +701,9 @@ impl MultiBoard {
         let mut sb_final_yield  = Yield(0,0);
         let mut sb_total_yield  = Yield(0,0);
 
-        /*for (i,b) in self.boards.iter().enumerate() {
-            println!("{} has in pos {}, {} logs",self.DMC, i, b.logs.len());
-            for (i2,l) in b.logs.iter().enumerate() {
-                if l.result == BResult::Unknown {
-                    println!("\t\t Log {} has result Unknown!", i2); }
-            }
-        }*/
+        for sb in &mut self.boards {
+            sb.update();
+        }
 
         self.update_results();
 
@@ -1168,22 +1172,29 @@ impl LogFileHandler {
         (self.testlist[testid].1,resultlist)
     }
 
-    fn get_longest_limit_list(&self) -> Option<&Vec<TLimit>> {
-        let mut ret = None;
-        let mut x: usize = 0;
+    // We don't check here if the limits have changed. 
+    // Can't properly show than in a spreadsheet anyway. 
+    // We will notify the user about it in the UI only.
+    fn generate_limit_list(&self) -> Option<Vec<TLimit>> {
+        let mut ret: Vec<TLimit> = Vec::new();
 
-        for mb in &self.multiboards {
-            for b in &mb.boards {
-                for l in &b.logs {
-                    if l.limits.len() > x {
-                       x = l.limits.len();
-                       ret=Some(&l.limits);
+        'outerloop: for i in 0..self.testlist.len()
+        {
+            for mb in &self.multiboards {
+                for sb in &mb.boards {
+                    for log in &sb.logs {
+                        if let Some(limit) = log.limits.get(i) {
+                            if log.results[i].0 != BResult::Unknown {
+                                ret.push(*limit);
+                                continue 'outerloop;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        ret
+        Some(ret)
     }
 
     fn get_export_list(&self, settings: &ExportSettings) -> Vec<usize> {
@@ -1241,7 +1252,7 @@ impl LogFileHandler {
             
             // Print limits. Nominal value is skiped.
             // It does not check if the limit changed.
-            if let Some(limits) = self.get_longest_limit_list() {
+            if let Some(limits) = self.generate_limit_list() {
                 for (i,t) in export_list.iter().enumerate() {
                     let c: u32 = (i*2 + 4).try_into().unwrap();
                     // Lim2 (f32,f32),     // UL - LL
@@ -1290,7 +1301,7 @@ impl LogFileHandler {
 
             // Print limits
             // It does not check if the limit changed.
-            if let Some(limits) = self.get_longest_limit_list() {
+            if let Some(limits) = self.generate_limit_list() {
                 for (i,t) in export_list.iter().enumerate() {
                     let l: u32 = (i + 4).try_into().unwrap();
                     // Lim2 (f32,f32),     // UL - LL
