@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
-use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense, Stroke};
+use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense, Stroke, Layout};
 use egui_extras::{TableBuilder, Column};
 use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer, BarChart, Bar};
 
@@ -601,7 +601,7 @@ impl eframe::App for MyApp {
 
                     TableBuilder::new(ui)
                         .striped(true)
-                        .column(Column::initial(200.0).resizable(true))
+                        .column(Column::initial(220.0).resizable(true))
                         .column(Column::remainder())
                         .header(20.0, |mut header| {
                             header.col(|ui| {
@@ -613,9 +613,11 @@ impl eframe::App for MyApp {
                         })
                         .body(|mut body| {
                             for fail in &self.failures {
-                                body.row(20.0, |mut row| {
+                                body.row(16.0, |mut row| {
                                     row.col(|ui| {
-                                        if ui.add(egui::Label::new(fail.name.to_owned()).sense(Sense::click())).clicked() {
+                                        if ui.add(egui::Label::new(fail.name.to_owned())
+                                        .truncate(true)
+                                        .sense(Sense::click())).clicked() {
                                             self.selected_test = fail.test_id;
                                             self.mode = AppMode::Plot;                                            
                                         }
@@ -655,11 +657,11 @@ impl eframe::App for MyApp {
                     egui::TopBottomPanel::bottom("failed panels")
                     .resizable(true)
                     .show(ctx, |ui| {
-                        ui.horizontal( |ui| {
+                        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                             TableBuilder::new(ui)
                                 .striped(true)
-                                .column(Column::initial(250.0).resizable(true))
-                                .column(Column::initial(200.0).resizable(true))
+                                .column(Column::initial(150.0).resizable(true))
+                                .column(Column::initial(100.0).resizable(true))
                                 .body(|mut body| {
                                     for fail in &x.failed {
                                         body.row(20.0, |mut row| {
@@ -676,7 +678,6 @@ impl eframe::App for MyApp {
                             if x.by_index.len() > 1 {
                                 let mut bars: Vec<Bar> = Vec::new();
                                 for bar in x.by_index.iter().enumerate() {
-                                    //println!("{}, {}", bar.0, *bar.1);
                                     bars.push(
                                         Bar { 
                                             name: format!("{}.", bar.0 as u64 +1), 
@@ -693,9 +694,14 @@ impl eframe::App for MyApp {
                                 let chart = BarChart::new(bars);
 
                                 Plot::new("failure by index")
+                                .show_x(false)
+                                .show_y(false)
                                 .allow_scroll(false)
+                                .allow_drag(false)
                                 .allow_boxed_zoom(false)
                                 .clamp_grid(true)
+                                .set_margin_fraction(Vec2 { x: 0.05, y: 0.1})
+                                .width(std::cmp::max(8, x.by_index.len()) as f32 *30.0)
                                 .show(ui, |ui| {
                                     ui.bar_chart(chart);
                                 });
@@ -706,10 +712,13 @@ impl eframe::App for MyApp {
                 }
             }
         }
+
         // Central panel
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default()
+        .show(ctx, |ui| {
             ui.set_enabled(!self.loading);
 
+            // Top "menu bar"
             ui.horizontal(|ui| {
                 if ui.button(MESSAGE_E[EXPORT_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Export;
