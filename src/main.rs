@@ -673,33 +673,35 @@ impl eframe::App for MyApp {
                                     }
                                 });
 
-                            let mut bars: Vec<Bar> = Vec::new();
-                            for bar in x.by_index.iter().enumerate() {
-                                //println!("{}, {}", bar.0, *bar.1);
-                                bars.push(
-                                    Bar { 
-                                        name: format!("{}.", bar.0), 
-                                        orientation: egui_plot::Orientation::Vertical, 
-                                        argument: bar.0 as f64 +1.0, 
-                                        value: *bar.1 as f64, 
-                                        base_offset: None, 
-                                        bar_width: 0.5, 
-                                        stroke: Stroke { width: 1.0, color: Color32::GRAY}, 
-                                        fill: Color32::RED 
-                                    }
-                                );
-                            }
-                            let chart = BarChart::new(bars);
+                            if x.by_index.len() > 1 {
+                                let mut bars: Vec<Bar> = Vec::new();
+                                for bar in x.by_index.iter().enumerate() {
+                                    //println!("{}, {}", bar.0, *bar.1);
+                                    bars.push(
+                                        Bar { 
+                                            name: format!("{}.", bar.0 as u64 +1), 
+                                            orientation: egui_plot::Orientation::Vertical, 
+                                            argument: bar.0 as f64 +1.0, 
+                                            value: *bar.1 as f64, 
+                                            base_offset: None, 
+                                            bar_width: 0.5, 
+                                            stroke: Stroke { width: 1.0, color: Color32::GRAY}, 
+                                            fill: Color32::RED 
+                                        }
+                                    );
+                                }
+                                let chart = BarChart::new(bars);
 
-                            Plot::new("failure by index")
-                            .allow_scroll(false)
-                            .allow_boxed_zoom(false)
-                            .clamp_grid(true)
-                            .show(ui, |ui| {
-                                ui.bar_chart(chart);
-                            })
+                                Plot::new("failure by index")
+                                .allow_scroll(false)
+                                .allow_boxed_zoom(false)
+                                .clamp_grid(true)
+                                .show(ui, |ui| {
+                                    ui.bar_chart(chart);
+                                });
+                            }
                         });
-                        
+                            
                     });
                 }
             }
