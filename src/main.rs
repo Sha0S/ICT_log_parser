@@ -648,6 +648,34 @@ impl eframe::App for MyApp {
             
         });
         
+        // Failed DMC list for Plot view - needs its own panel!
+        if self.mode == AppMode::Plot {
+            if !self.failures.is_empty() {
+                if let Some(x) = self.failures.iter().find(|k| k.test_id == self.selected_test) {
+                    egui::TopBottomPanel::bottom("failed panels")
+                    .resizable(true)
+                    .show(ctx, |ui| {
+
+                        TableBuilder::new(ui)
+                            .striped(true)
+                            .column(Column::initial(250.0).resizable(true))
+                            .column(Column::initial(200.0).resizable(true))
+                            .body(|mut body| {
+                                for fail in &x.failed {
+                                    body.row(20.0, |mut row| {
+                                        row.col(|ui| {
+                                            ui.label(format!("{}", fail.0));
+                                        });
+                                        row.col(|ui| {
+                                            ui.label(u64_to_string(fail.1));
+                                        });
+                                    });
+                                }
+                            });
+                    });
+                }
+            }
+        }
         // Central panel
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.loading);
@@ -704,6 +732,7 @@ impl eframe::App for MyApp {
                             self.selected_test_tmp = self.selected_test;
                         }
                     }
+
                     // Insert plot here
 
                     let ppoints: PlotPoints = self.selected_test_results.1.iter().filter_map(|r| {
@@ -761,8 +790,8 @@ impl eframe::App for MyApp {
                         .name("MIN");
 
                     Plot::new("Test results")
-                        .auto_bounds_x()
-                        .auto_bounds_y()
+                        //.auto_bounds_x()
+                        //.auto_bounds_y()
                         .custom_x_axes(
                             vec![egui_plot::AxisHints::default()
                             .formatter(x_formatter)

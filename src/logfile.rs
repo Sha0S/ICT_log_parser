@@ -234,7 +234,8 @@ pub struct FailureList {
     pub name: String,
     pub total: usize,
     //after_rt: usize,
-    pub by_index: Vec<usize>
+    pub failed: Vec<(String, u64)>,
+    pub by_index: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -796,18 +797,17 @@ impl MultiBoard {
         &self.results
     }
     
-    fn get_failures(&self) -> Vec<(usize, usize)> {
-        let mut failures: Vec<(usize, usize)> = Vec::new(); // (test number, board index)
+    fn get_failures(&self) -> Vec<(usize, usize, String, u64)> {
+        let mut failures: Vec<(usize, usize, String, u64)> = Vec::new(); // (test number, board index, DMC, time)
 
         for b in &self.boards {
             for l in &b.logs {
                 if l.result == BResult::Pass {
                     continue;
                 }
-
                 for (i, r) in l.results.iter().enumerate() {
                     if r.0 == BResult::Fail {
-                        failures.push((i,b.index));
+                        failures.push(( i, b.index, b.DMC.clone(), l.time_s));
                     }
                 }
             }
@@ -1055,6 +1055,7 @@ impl LogFileHandler {
                 for fl in &mut failure_list {
                     if fl.test_id == failure.0 {
                         fl.total += 1;
+                        fl.failed.push((failure.2, failure.3));
                         fl.by_index[failure.1-1] += 1;
                         continue 'failfor;
                     }
@@ -1064,6 +1065,7 @@ impl LogFileHandler {
                         test_id: failure.0,
                         name: self.testlist[failure.0].0.clone(),
                         total: 1, 
+                        failed: vec![(failure.2, failure.3)],
                         by_index: vec![0;self.pp_multiboard]};
 
                 new_fail.by_index[failure.1-1] += 1;
