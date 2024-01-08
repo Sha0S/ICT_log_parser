@@ -680,7 +680,7 @@ impl eframe::App for MyApp {
                                     Bar { 
                                         name: format!("{}.", bar.0), 
                                         orientation: egui_plot::Orientation::Vertical, 
-                                        argument: bar.0 as f64, 
+                                        argument: bar.0 as f64 +1.0, 
                                         value: *bar.1 as f64, 
                                         base_offset: None, 
                                         bar_width: 0.5, 
