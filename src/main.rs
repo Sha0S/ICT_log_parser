@@ -2,9 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
-use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense};
+use egui::{ProgressBar, ImageButton, RichText, Color32, Vec2, Sense, Stroke};
 use egui_extras::{TableBuilder, Column};
-use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer};
+use egui_plot::{Line, Plot, PlotPoints, uniform_grid_spacer, BarChart, Bar};
 
 use chrono::*;
 
@@ -655,23 +655,51 @@ impl eframe::App for MyApp {
                     egui::TopBottomPanel::bottom("failed panels")
                     .resizable(true)
                     .show(ctx, |ui| {
+                        ui.horizontal( |ui| {
+                            TableBuilder::new(ui)
+                                .striped(true)
+                                .column(Column::initial(250.0).resizable(true))
+                                .column(Column::initial(200.0).resizable(true))
+                                .body(|mut body| {
+                                    for fail in &x.failed {
+                                        body.row(20.0, |mut row| {
+                                            row.col(|ui| {
+                                                ui.label(format!("{}", fail.0));
+                                            });
+                                            row.col(|ui| {
+                                                ui.label(u64_to_string(fail.1));
+                                            });
+                                        });
+                                    }
+                                });
 
-                        TableBuilder::new(ui)
-                            .striped(true)
-                            .column(Column::initial(250.0).resizable(true))
-                            .column(Column::initial(200.0).resizable(true))
-                            .body(|mut body| {
-                                for fail in &x.failed {
-                                    body.row(20.0, |mut row| {
-                                        row.col(|ui| {
-                                            ui.label(format!("{}", fail.0));
-                                        });
-                                        row.col(|ui| {
-                                            ui.label(u64_to_string(fail.1));
-                                        });
-                                    });
-                                }
-                            });
+                            let mut bars: Vec<Bar> = Vec::new();
+                            for bar in x.by_index.iter().enumerate() {
+                                //println!("{}, {}", bar.0, *bar.1);
+                                bars.push(
+                                    Bar { 
+                                        name: format!("{}.", bar.0), 
+                                        orientation: egui_plot::Orientation::Vertical, 
+                                        argument: bar.0 as f64, 
+                                        value: *bar.1 as f64, 
+                                        base_offset: None, 
+                                        bar_width: 0.5, 
+                                        stroke: Stroke { width: 1.0, color: Color32::GRAY}, 
+                                        fill: Color32::RED 
+                                    }
+                                );
+                            }
+                            let chart = BarChart::new(bars);
+
+                            Plot::new("failure by index")
+                            .allow_scroll(false)
+                            .allow_boxed_zoom(false)
+                            .clamp_grid(true)
+                            .show(ui, |ui| {
+                                ui.bar_chart(chart);
+                            })
+                        });
+                        
                     });
                 }
             }
