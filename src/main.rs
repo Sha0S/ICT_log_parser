@@ -347,12 +347,12 @@ impl MyApp {
         let px_lock = self.progress_x.clone();
         let frame = ctx.clone();
 
-        let logs_result = match mode {
-            LoadMode::Folder(_) => get_logs_in_path(&input_path),
-            LoadMode::ProductList(_) => get_logs_in_path_t(&input_path, start_dt, end_dt)
-        };
-
         thread::spawn(move || {
+            let logs_result = match mode {
+                LoadMode::Folder(_) => get_logs_in_path(&input_path),
+                LoadMode::ProductList(_) => get_logs_in_path_t(&input_path, start_dt, end_dt)
+            };
+
             if let Ok(mut logs) = logs_result {
                 *pm_lock.write().unwrap() = logs.len() as u32;
                 (*lb_lock.write().unwrap()).clear();
@@ -376,8 +376,7 @@ impl MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_secs(30));
-        println!("repainting");
-
+        
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
             ui.set_min_width(270.0);
 
