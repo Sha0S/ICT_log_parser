@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 include!("locals.rs");
 
@@ -157,7 +156,6 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Box::<MyApp>::default()
-
         }),
     )
 }
@@ -377,6 +375,8 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.request_repaint_after(std::time::Duration::from_secs(30));
+        println!("repainting");
 
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
             ui.set_min_width(270.0);
