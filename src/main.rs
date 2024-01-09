@@ -536,6 +536,7 @@ impl eframe::App for MyApp {
                             }
                             
                             /* ToDo: implement more efficient functions for only adding few logs */
+                            self.selected_test_results.1.clear(); // force update plot after loading new log
                             self.update_stats(ctx);
                         }
                     }
@@ -760,7 +761,7 @@ impl eframe::App for MyApp {
 
                     ui.separator();
 
-                    if self.selected_test != self.selected_test_tmp {
+                    if self.selected_test != self.selected_test_tmp || self.selected_test_results.1.is_empty() {
                         println!("INFO: Loading results for test nbr {}!",self.selected_test);
                         self.selected_test_results = lfh.get_stats_for_test(self.selected_test);
                         if self.selected_test_results.1.is_empty() {
