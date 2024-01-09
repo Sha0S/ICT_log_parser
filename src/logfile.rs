@@ -746,6 +746,8 @@ impl MultiBoard {
     }
 
     fn update_results(&mut self) {
+        self.results.clear();
+
         for b in &self.boards {
             'forlog: for l in &b.logs {
                 // 1 - check if there is a results with matching "time"
