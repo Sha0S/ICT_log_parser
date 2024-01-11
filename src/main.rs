@@ -33,10 +33,8 @@ fn get_logs_in_path(p: &Path) -> Result<Vec<(PathBuf,u64)>,std::io::Error> {
         let path = file.path();
         if path.is_dir() {
 			ret.append( &mut get_logs_in_path(&path)? );
-        } else {
-            if let Ok(x) = path.metadata() {
-                ret.push( (path.to_path_buf(), x.len()) );
-            }
+        } else if let Ok(x) = path.metadata() {
+            ret.push( (path.to_path_buf(), x.len()) );
         }
     }
 
@@ -44,7 +42,7 @@ fn get_logs_in_path(p: &Path) -> Result<Vec<(PathBuf,u64)>,std::io::Error> {
 }
 
 
-fn is_dir_in_t(s: &PathBuf, start: DateTime<Local> , end: DateTime<Local>) -> bool
+fn is_dir_in_t(s: &Path, start: DateTime<Local> , end: DateTime<Local>) -> bool
 {
     if let Ok(as_time) = NaiveDate::parse_from_str(s.file_name().unwrap().to_str().unwrap(), "%Y_%m_%d") {
         if start.date_naive() <= as_time && end.date_naive() >= as_time {
@@ -64,12 +62,10 @@ fn get_logs_in_path_t(p: &Path, start: DateTime<Local> , end: DateTime<Local>) -
 			if is_dir_in_t(&path, start, end) {
 				ret.append( &mut get_logs_in_path_t(&path, start, end)? );
 			}
-        } else {
-            if let Ok(x) = path.metadata() {
-                let ct: DateTime<Local> = x.modified().unwrap().into();
-                if ct >= start && ct < end {
-                    ret.push( (path.to_path_buf(), x.len()) );
-                }
+        } else if let Ok(x) = path.metadata() {
+            let ct: DateTime<Local> = x.modified().unwrap().into();
+            if ct >= start && ct < end {
+                ret.push( (path.to_path_buf(), x.len()) );
             }
         }
     }
@@ -100,13 +96,13 @@ fn get_logs_since_t(p: &Path, start: DateTime<Local>) -> Result<Vec<PathBuf>,std
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
 fn u64_to_timeframe(mut x: u64) -> String {
     let y = x/u64::pow(10, 6);
-    x = x % u64::pow(10, 6);
+    x %= u64::pow(10, 6);
 
     let m = x/u64::pow(10, 4);
-    x = x % u64::pow(10, 4);
+    x %= u64::pow(10, 4);
 
     let d = x/u64::pow(10, 2);
-    x = x % u64::pow(10, 2);
+    x %= u64::pow(10, 2);
 
     format!("{0:02.0}.{1:02.0}.{2:02.0} {3:02.0}:00 - {3:02.0}:59", y, m, d, x)
 }
@@ -129,7 +125,7 @@ fn load_product_list() -> Vec<Product> {
                 let desc = parts.next().unwrap().to_owned();
                 let path = parts.next().unwrap().to_owned();
     
-                if Path::new(&path).try_exists().is_ok_and(|x| x == true) {
+                if Path::new(&path).try_exists().is_ok_and(|x| x) {
                     list.push (
                         Product{
                             desc,
@@ -220,8 +216,8 @@ struct MyApp{
 
     mode: AppMode,
 
-    hourly_stats: Vec<(u64,usize,usize,Vec<(BResult,u64)>)>,
-    multiboard_results: Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)>,
+    hourly_stats: Vec<HourlyStats>,
+    multiboard_results: Vec<MbStats>,
 
     selected_test: usize,
     selected_test_tmp: usize,
@@ -333,13 +329,11 @@ impl MyApp {
         self.loading = true;
         self.clear_stats();
 
-        if matches!(mode, LoadMode::ProductList(_)) {
-            if !self.time_end_use {
-                self.auto_update.enabled = false;
-                self.auto_update.usable = true;
-                self.auto_update.product = Some(self.selected_product);
-                self.auto_update.last_scan_time = Some(Local::now());
-            }
+        if matches!(mode, LoadMode::ProductList(_)) && !self.time_end_use {
+            self.auto_update.enabled = false;
+            self.auto_update.usable = true;
+            self.auto_update.product = Some(self.selected_product);
+            self.auto_update.last_scan_time = Some(Local::now());
         }
 
         let lb_lock = self.log_master.clone();
@@ -433,10 +427,10 @@ impl eframe::App for MyApp {
 
                     let time_now = Local::now().naive_local();
                     let hours_now = time_now.hour();
-                    if 6 <= hours_now && hours_now < 14 {
+                    if (6..14).contains(&hours_now) {
                         self.time_start = NaiveTime::from_hms_opt(6,0,0).unwrap();
                         self.time_end = NaiveTime::from_hms_opt(13,59,59).unwrap();
-                    } else if 14 <= hours_now && hours_now < 22  {
+                    } else if (14..22).contains(&hours_now)  {
                         self.time_start = NaiveTime::from_hms_opt(14,0,0).unwrap();
                         self.time_end = NaiveTime::from_hms_opt(21,59,59).unwrap();
                     } else {
@@ -531,7 +525,7 @@ impl eframe::App for MyApp {
                         if let Ok(file_list) = get_logs_since_t( Path::new(&product.path), t_old) {
                             
                             for log in file_list.iter() {
-                                self.log_master.write().unwrap().push_from_file(&log);
+                                self.log_master.write().unwrap().push_from_file(log);
                             }
                             
                             /* ToDo: implement more efficient functions for only adding few logs */
@@ -651,65 +645,63 @@ impl eframe::App for MyApp {
         });
         
         // Failed DMC list for Plot view - needs its own panel!
-        if self.mode == AppMode::Plot {
-            if !self.failures.is_empty() {
-                if let Some(x) = self.failures.iter().find(|k| k.test_id == self.selected_test) {
-                    egui::TopBottomPanel::bottom("failed panels")
-                    .resizable(true)
-                    .show(ctx, |ui| {
-                        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
-                            TableBuilder::new(ui)
-                                .striped(true)
-                                .column(Column::initial(150.0).resizable(true))
-                                .column(Column::initial(100.0).resizable(true))
-                                .body(|mut body| {
-                                    for fail in &x.failed {
-                                        body.row(20.0, |mut row| {
-                                            row.col(|ui| {
-                                                ui.label(format!("{}", fail.0));
-                                            });
-                                            row.col(|ui| {
-                                                ui.label(u64_to_string(fail.1));
-                                            });
+        if self.mode == AppMode::Plot && !self.failures.is_empty() {
+            if let Some(x) = self.failures.iter().find(|k| k.test_id == self.selected_test) {
+                egui::TopBottomPanel::bottom("failed panels")
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+                        TableBuilder::new(ui)
+                            .striped(true)
+                            .column(Column::initial(150.0).resizable(true))
+                            .column(Column::initial(100.0).resizable(true))
+                            .body(|mut body| {
+                                for fail in &x.failed {
+                                    body.row(20.0, |mut row| {
+                                        row.col(|ui| {
+                                            ui.label(fail.0.to_string());
                                         });
-                                    }
-                                });
-
-                            if x.by_index.len() > 1 {
-                                let mut bars: Vec<Bar> = Vec::new();
-                                for bar in x.by_index.iter().enumerate() {
-                                    bars.push(
-                                        Bar { 
-                                            name: format!("{}.", bar.0 as u64 +1), 
-                                            orientation: egui_plot::Orientation::Vertical, 
-                                            argument: bar.0 as f64 +1.0, 
-                                            value: *bar.1 as f64, 
-                                            base_offset: None, 
-                                            bar_width: 0.5, 
-                                            stroke: Stroke { width: 1.0, color: Color32::GRAY}, 
-                                            fill: Color32::RED 
-                                        }
-                                    );
+                                        row.col(|ui| {
+                                            ui.label(u64_to_string(fail.1));
+                                        });
+                                    });
                                 }
-                                let chart = BarChart::new(bars);
+                            });
 
-                                Plot::new("failure by index")
-                                .show_x(false)
-                                .show_y(false)
-                                .allow_scroll(false)
-                                .allow_drag(false)
-                                .allow_boxed_zoom(false)
-                                .clamp_grid(true)
-                                .set_margin_fraction(Vec2 { x: 0.05, y: 0.1})
-                                .width(std::cmp::max(8, x.by_index.len()) as f32 *30.0)
-                                .show(ui, |ui| {
-                                    ui.bar_chart(chart);
-                                });
+                        if x.by_index.len() > 1 {
+                            let mut bars: Vec<Bar> = Vec::new();
+                            for bar in x.by_index.iter().enumerate() {
+                                bars.push(
+                                    Bar { 
+                                        name: format!("{}.", bar.0 as u64 +1), 
+                                        orientation: egui_plot::Orientation::Vertical, 
+                                        argument: bar.0 as f64 +1.0, 
+                                        value: *bar.1 as f64, 
+                                        base_offset: None, 
+                                        bar_width: 0.5, 
+                                        stroke: Stroke { width: 1.0, color: Color32::GRAY}, 
+                                        fill: Color32::RED 
+                                    }
+                                );
                             }
-                        });
-                            
+                            let chart = BarChart::new(bars);
+
+                            Plot::new("failure by index")
+                            .show_x(false)
+                            .show_y(false)
+                            .allow_scroll(false)
+                            .allow_drag(false)
+                            .allow_boxed_zoom(false)
+                            .clamp_grid(true)
+                            .set_margin_fraction(Vec2 { x: 0.05, y: 0.1})
+                            .width(std::cmp::max(8, x.by_index.len()) as f32 *30.0)
+                            .show(ui, |ui| {
+                                ui.bar_chart(chart);
+                            });
+                        }
                     });
-                }
+                        
+                });
             }
         }
 
@@ -883,106 +875,102 @@ impl eframe::App for MyApp {
             }
 
             // Hourly mode
-            if self.mode == AppMode::Hourly {
-                if !self.hourly_stats.is_empty() {
-                    ui.push_id("hourly", |ui| {
-                        TableBuilder::new(ui)
-                        .striped(true)
-                        .column(Column::initial(150.0).resizable(true))
-                        .column(Column::initial(50.0).resizable(true))
-                        .column(Column::initial(50.0).resizable(true))
-                        .column(Column::auto().resizable(true))
-                        .header(20.0, |mut header| {
-                            header.col(|ui| {
-                                ui.heading(MESSAGE_H[TIME][self.lang]);
+            if self.mode == AppMode::Hourly && !self.hourly_stats.is_empty() {
+                ui.push_id("hourly", |ui| {
+                    TableBuilder::new(ui)
+                    .striped(true)
+                    .column(Column::initial(150.0).resizable(true))
+                    .column(Column::initial(50.0).resizable(true))
+                    .column(Column::initial(50.0).resizable(true))
+                    .column(Column::auto().resizable(true))
+                    .header(20.0, |mut header| {
+                        header.col(|ui| {
+                            ui.heading(MESSAGE_H[TIME][self.lang]);
+                        });
+                        header.col(|ui| {
+                            ui.heading("OK");
+                        });
+                        header.col(|ui| {
+                            ui.heading("NOK");
+                        });
+                        header.col(|ui| {
+                            ui.heading(MESSAGE_H[RESULTS][self.lang]);
+                        });
+                    })
+                    .body(|mut body| {
+                        for hour in &self.hourly_stats {
+                            body.row(15.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label(u64_to_timeframe(hour.0));
+                                });
+                                row.col(|ui| {
+                                    ui.label(format!("{}", hour.1));
+                                });
+                                row.col(|ui| {
+                                    ui.label(format!("{}", hour.2));
+                                });
+                                row.col(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
+                                        for (r,_) in &hour.3 {
+                                            ui.label(RichText::new("■").color(
+                                                r.into_color()
+                                            ));
+                                        }
+                                    });
+                                });
                             });
-                            header.col(|ui| {
-                                ui.heading("OK");
-                            });
-                            header.col(|ui| {
-                                ui.heading("NOK");
-                            });
-                            header.col(|ui| {
-                                ui.heading(MESSAGE_H[RESULTS][self.lang]);
-                            });
-                        })
-                        .body(|mut body| {
-                            for hour in &self.hourly_stats {
+                        }
+                    });
+                });
+            }
+
+            // Multiboards mode
+            if self.mode == AppMode::Multiboards && !self.multiboard_results.is_empty() {
+                ui.push_id("multib", |ui| {
+                    TableBuilder::new(ui)
+                    .striped(true)
+                    .column(Column::initial(40.0).resizable(true))
+                    .column(Column::initial(200.0).resizable(true))
+                    .column(Column::initial(130.0).resizable(true))
+                    .column(Column::auto().resizable(true))
+                    .body(|mut body| {
+                        for (i, mb) in self.multiboard_results.iter().enumerate() {
+                            let color_mb = mb.1.last().unwrap().1.into_dark_color();
+                            for (i2, sb) in mb.1.iter().enumerate() {
+                                let color_sb = sb.1.into_dark_color();
                                 body.row(15.0, |mut row| {
                                     row.col(|ui| {
-                                        ui.label(u64_to_timeframe(hour.0));
+                                        if i2 == 0 {
+                                            //ui.label(format!("{}.", i+1));
+                                            ui.label(egui::RichText::new(format!("{}.", i+1)).color(color_mb));
+                                        }
                                     });
                                     row.col(|ui| {
-                                        ui.label(format!("{}", hour.1));
+                                        if i2 == 0 {
+                                            //ui.label(mb.0.clone());
+                                            ui.label(egui::RichText::new(mb.0.clone()).color(color_mb));
+                                        }
                                     });
                                     row.col(|ui| {
-                                        ui.label(format!("{}", hour.2));
+                                            //ui.label(u64_to_string( sb.0));
+                                            ui.label(egui::RichText::new(u64_to_string( sb.0)).color(color_sb));
                                     });
                                     row.col(|ui| {
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
-                                            for (r,_) in &hour.3 {
+                                            for r in &sb.2 {
                                                 ui.label(RichText::new("■").color(
-                                                    r.to_color()
+                                                    r.into_color()
                                                 ));
                                             }
                                         });
                                     });
                                 });
                             }
-                        });
+                        }
                     });
-                }
-            }
-
-            // Multiboards mode
-            if self.mode == AppMode::Multiboards {
-                if !self.multiboard_results.is_empty() {
-                    ui.push_id("multib", |ui| {
-                        TableBuilder::new(ui)
-                        .striped(true)
-                        .column(Column::initial(40.0).resizable(true))
-                        .column(Column::initial(200.0).resizable(true))
-                        .column(Column::initial(130.0).resizable(true))
-                        .column(Column::auto().resizable(true))
-                        .body(|mut body| {
-                            for (i, mb) in self.multiboard_results.iter().enumerate() {
-                                let color_mb = mb.1.last().unwrap().1.to_dark_color();
-                                for (i2, sb) in mb.1.iter().enumerate() {
-                                    let color_sb = sb.1.to_dark_color();
-                                    body.row(15.0, |mut row| {
-                                        row.col(|ui| {
-                                            if i2 == 0 {
-                                                //ui.label(format!("{}.", i+1));
-                                                ui.label(egui::RichText::new(format!("{}.", i+1)).color(color_mb));
-                                            }
-                                        });
-                                        row.col(|ui| {
-                                            if i2 == 0 {
-                                                //ui.label(mb.0.clone());
-                                                ui.label(egui::RichText::new(mb.0.clone()).color(color_mb));
-                                            }
-                                        });
-                                        row.col(|ui| {
-                                                //ui.label(u64_to_string( sb.0));
-                                                ui.label(egui::RichText::new(u64_to_string( sb.0)).color(color_sb));
-                                        });
-                                        row.col(|ui| {
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
-                                                for r in &sb.2 {
-                                                    ui.label(RichText::new("■").color(
-                                                        r.to_color()
-                                                    ));
-                                                }
-                                            });
-                                        });
-                                    });
-                                }
-                            }
-                        });
-                    });
-                }
+                });
             }
             
             // Export mode
@@ -1037,14 +1025,14 @@ impl eframe::App for MyApp {
 // Formaters for the plot
 
 fn y_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
-    return format!("{tick:+1.1E}");
+    format!("{tick:+1.1E}")
 }
 
 fn x_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
     let h = tick / 3600.0;
     let m = (tick % 3600.0) / 60.0;
     let s = tick % 60.0;
-    return format!("{h:02.0}:{m:02.0}:{s:02.0}");
+    format!("{h:02.0}:{m:02.0}:{s:02.0}")
 }
 
 fn c_formater(point: &egui_plot::PlotPoint, _: &egui_plot::PlotBounds) -> String {

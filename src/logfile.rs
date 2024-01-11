@@ -44,19 +44,19 @@ fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (Strin
 // YYMMDDhhmmss => YY.MM.DD. hh:mm:ss
 pub fn u64_to_string(mut x: u64) -> String {
     let YY = x/u64::pow(10, 10);
-    x = x % u64::pow(10, 10);
+    x %= u64::pow(10, 10);
 
     let MM = x/u64::pow(10, 8);
-    x = x % u64::pow(10, 8);
+    x %= u64::pow(10, 8);
 
     let DD = x/u64::pow(10, 6);
-    x = x % u64::pow(10, 6);
+    x %= u64::pow(10, 6);
 
     let hh = x/u64::pow(10, 4);
-    x = x % u64::pow(10, 4);
+    x %= u64::pow(10, 4);
 
     let mm = x/u64::pow(10, 2);
-    x = x % u64::pow(10, 2);
+    x %= u64::pow(10, 2);
 
     format!("{:02.0}.{:02.0}.{:02.0} {:02.0}:{:02.0}:{:02.0}", YY, MM, DD, hh, mm, x)
 }
@@ -212,7 +212,7 @@ impl BResult {
         }
     }
 
-    pub fn to_color(&self) -> egui::Color32 {
+    pub fn into_color(self) -> egui::Color32 {
         match self {
             BResult::Pass => egui::Color32::GREEN,
             BResult::Fail => egui::Color32::RED,
@@ -220,7 +220,7 @@ impl BResult {
         }
     }
 
-    pub fn to_dark_color(&self) -> egui::Color32 {
+    pub fn into_dark_color(self) -> egui::Color32 {
         match self {
             BResult::Pass => egui::Color32::DARK_GREEN,
             BResult::Fail => egui::Color32::RED,
@@ -601,7 +601,7 @@ impl Board {
         true
     }
 
-    fn export_to_col(&self, sheet: &mut Worksheet, mut c: u32, only_failure: bool, export_list: &Vec<usize>) -> u32 {
+    fn export_to_col(&self, sheet: &mut Worksheet, mut c: u32, only_failure: bool, export_list: &[usize]) -> u32 {
         if only_failure && self.all_ok() { return c }
 
         // Board values (DMC+index) only get printed once
@@ -631,7 +631,7 @@ impl Board {
         c
     }
 
-    fn export_to_line(&self, sheet: &mut Worksheet, mut l: u32, only_failure: bool, export_list: &Vec<usize>) -> u32 {
+    fn export_to_line(&self, sheet: &mut Worksheet, mut l: u32, only_failure: bool, export_list: &[usize]) -> u32 {
         if only_failure && self.all_ok() { return l }
 
         // Board values (DMC+index) only get printed once
@@ -857,6 +857,9 @@ pub struct LogFileHandler {
     testlist: Vec<TList>,
     multiboards: Vec<MultiBoard>
 }
+
+pub type HourlyStats = (u64,usize,usize,Vec<(BResult,u64)>);
+pub type MbStats = (String, Vec<(u64,BResult,Vec<BResult>)>);
 
 impl LogFileHandler {
     pub fn new() -> Self {
@@ -1086,12 +1089,12 @@ impl LogFileHandler {
         failure_list
     }
 
-    pub fn get_hourly_mb_stats(&self) -> Vec<(u64,usize,usize,Vec<(BResult,u64)>)> {
+    pub fn get_hourly_mb_stats(&self) -> Vec<HourlyStats> {
         // Vec<(time in yymmddhh, total ok, total nok, Vec<(result, mmss)> )>
         // Time is in format 231222154801 by default YYMMDDHHMMSS
         // We don't care about the last 4 digit, so we can div by 10^4
 
-        let mut ret: Vec<(u64,usize,usize,Vec<(BResult,u64)>)> = Vec::new();
+        let mut ret: Vec<HourlyStats> = Vec::new();
 
         for mb in &self.multiboards {
             'resfor: for res in &mb.results {
@@ -1132,8 +1135,8 @@ impl LogFileHandler {
     }
 
     // Returns the result of eaxh mb. Format: (DMC, Vec<(test_time, mb_result, Vec<board_result>)>)
-    pub fn get_mb_results(&self) -> Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)> {
-        let mut ret: Vec<(String, Vec<(u64,BResult,Vec<BResult>)>)> = Vec::new();
+    pub fn get_mb_results(&self) -> Vec<MbStats> {
+        let mut ret: Vec<MbStats> = Vec::new();
 
         for mb in &self.multiboards {
             ret.push((
@@ -1202,12 +1205,10 @@ impl LogFileHandler {
                                     }
                                     if limit.is_none() {
                                         limit = Some(test)
-                                    } else {
-                                        if *limit.unwrap() != *test {
-                                            println!("INFO: Test {tname} has limit changes in the sample");
-                                            ret.push((i, tname.clone()));
-                                            continue 'outerloop;
-                                        }
+                                    } else if *limit.unwrap() != *test {
+                                        println!("INFO: Test {tname} has limit changes in the sample");
+                                        ret.push((i, tname.clone()));
+                                        continue 'outerloop;
                                     }                                    
                                 }
                             }
