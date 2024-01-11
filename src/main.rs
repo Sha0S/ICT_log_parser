@@ -25,16 +25,20 @@ Currently in the _t functions it checks if the last modification to the files is
 This wasn't the original behaviour, but it should be fine? It is also really fast.
 */
 
-fn get_logs_in_path(p: &Path) -> Result<Vec<(PathBuf, u64)>, std::io::Error> {
+fn get_logs_in_path(
+    p: &Path,
+    pm_lock: Arc<RwLock<u32>>,
+) -> Result<Vec<(PathBuf, u64)>, std::io::Error> {
     let mut ret: Vec<(PathBuf, u64)> = Vec::new();
 
     for file in fs::read_dir(p)? {
         let file = file?;
         let path = file.path();
         if path.is_dir() {
-            ret.append(&mut get_logs_in_path(&path)?);
+            ret.append(&mut get_logs_in_path(&path, pm_lock.clone())?);
         } else if let Ok(x) = path.metadata() {
             ret.push((path.to_path_buf(), x.len()));
+            *pm_lock.write().unwrap() += 1;
         }
     }
 
@@ -354,7 +358,7 @@ impl MyApp {
 
         thread::spawn(move || {
             let logs_result = match mode {
-                LoadMode::Folder(_) => get_logs_in_path(&input_path),
+                LoadMode::Folder(_) => get_logs_in_path(&input_path, pm_lock.clone()),
                 LoadMode::ProductList(_) => get_logs_in_path_t(&input_path, start_dt, end_dt),
             };
 
@@ -523,7 +527,11 @@ impl eframe::App for MyApp {
                     xx = *x;
                 }
 
-                ui.add(ProgressBar::new(xx as f32 / mm as f32));
+                ui.add(
+                    ProgressBar::new(xx as f32 / mm as f32)
+                        .text(RichText::new(format!("{} / {}", xx, mm)))
+                        .animate(true),
+                );
 
                 self.status =
                     format!("{}: {} / {}", MESSAGE[LOADING_MESSAGE][self.lang], xx, mm).to_owned();
