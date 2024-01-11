@@ -361,7 +361,7 @@ impl MyApp {
             if let Ok(mut logs) = logs_result {
                 *pm_lock.write().unwrap() = logs.len() as u32;
                 (*lb_lock.write().unwrap()).clear();
-                frame.request_repaint();
+                frame.request_repaint_after(std::time::Duration::from_millis(500));
 
                 println!("Found {} logs to load.", logs.len());
                 logs.sort_by_key(|k| k.1);
@@ -369,7 +369,7 @@ impl MyApp {
                 for log in logs.iter().rev() {
                     (*lb_lock.write().unwrap()).push_from_file(&log.0);
                     *px_lock.write().unwrap() += 1;
-                    frame.request_repaint();
+                    frame.request_repaint_after(std::time::Duration::from_millis(500));
                 }
             }
         });
