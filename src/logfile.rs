@@ -274,14 +274,13 @@ pub struct LogFile {
 
 impl LogFile {
     pub fn load(p: &Path) -> Self {
-        //println!("\tINFO: Loading file {}", p.display());
+        println!("INFO: Loading file {}", p.display());
         let source = p.as_os_str().to_owned();
         let mut DMC = String::new();
         let mut DMC_mb = String::new();
         let mut product_id = String::new();
         let mut index: usize = 0;
         let mut result: bool = false;
-        //let mut pins_test: bool = true;
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
         let mut tests: Vec<Test> = Vec::new();
@@ -316,7 +315,7 @@ impl LogFile {
                 "{@BATCH" => {
                     product_id = parts.next().unwrap().to_string();
                 }
-                "{@BTEST" => {
+                "{@BTEST" | "}{@BTEST" => {
                     DMC = parts.next().unwrap().to_string();
                     result = str_to_result(parts.next().unwrap());
                     time_start = parts.next().unwrap().parse::<u64>().unwrap();
@@ -507,7 +506,7 @@ impl LogFile {
                     }
                 }
                 _ => {
-                    //println!("Unable to process {}", word.unwrap())
+                    println!("\tW: Unable to process {}", word.unwrap());
                 }
 
             }
