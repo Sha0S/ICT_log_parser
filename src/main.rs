@@ -81,26 +81,6 @@ fn get_logs_in_path_t(
     Ok(ret)
 }
 
-// It won't read sub-directories
-fn get_logs_since_t(p: &Path, start: DateTime<Local>) -> Result<Vec<PathBuf>, std::io::Error> {
-    let mut ret: Vec<PathBuf> = Vec::new();
-
-    for file in fs::read_dir(p)? {
-        let file = file?;
-        let path = file.path();
-        if !path.is_dir() {
-            if let Ok(x) = path.metadata() {
-                let ct: DateTime<Local> = x.modified().unwrap().into();
-                if ct >= start {
-                    ret.push(path.to_path_buf());
-                }
-            }
-        }
-    }
-
-    Ok(ret)
-}
-
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
 fn u64_to_timeframe(mut x: u64) -> String {
     let y = x / u64::pow(10, 6);
@@ -187,15 +167,104 @@ struct AutoUpdate {
     usable: bool,
     enabled: bool,
     product: Option<usize>,
+    last_log: Option<(PathBuf, DateTime<Local>)>,
     last_scan_time: Option<DateTime<Local>>,
 }
 
 impl AutoUpdate {
+    fn default() -> Self {
+        AutoUpdate {
+            usable: false,
+            enabled: false,
+            product: None,
+            last_log: None,
+            last_scan_time: None,
+        }
+    }
+
     fn clear(&mut self) {
         self.usable = false;
         self.enabled = false;
         self.product = None;
+        self.last_log = None;
         self.last_scan_time = None;
+    }
+
+    fn its_time(&self) -> bool {
+        if self.enabled {
+            if let Some(t) = self.last_scan_time {
+                return (Local::now() - t).num_seconds() > 60;
+            }
+        }
+
+        false
+    }
+
+    /*
+        Will have to test it extensively, original implementation had issues when the log are on a different machine, 
+        and local time of the host was different. 
+
+        Might want to get every log in the even for x minutes befero the last, and then discard the duplicates.
+
+        It also depends on how good the resolution of "time of modification"  is! If it is too low, this won't be reliable on multiboards!!
+    */
+
+    fn get_logs_after_t(
+        &self,
+        path: &Path,
+    ) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
+        let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
+
+        // ToDo:
+        // Idealy we would get last-log from the last manual load. 
+        // That would need the re-write of the fn.
+        let start = if let Some((_, x)) = self.last_log{
+                x       
+        } else {
+            self.last_scan_time.unwrap()
+        };
+
+
+        //if let Some((sl, start)) = &self.last_log {
+            //let start = *st - Duration::minutes(5);
+        for file in fs::read_dir(path)? {
+            let file = file?;
+            let path = file.path();
+            if path.is_file() {
+                if let Ok(x) = path.metadata() {
+                    let ct: DateTime<Local> = x.modified().unwrap().into();
+                    if ct > start {
+                        ret.push((path.to_path_buf(), ct));
+                    }
+                }
+            }
+        }
+
+        ret.sort_by_key(|k| k.1);
+        //    if let Some(x) = ret.iter_mut().position(|f| f.0 == *sl) {
+        //        ret.drain(..=x);
+        //    }
+        //}
+
+        Ok(ret)
+    }
+
+    fn update(&mut self, products: &[Product], lfh: Arc<RwLock<LogFileHandler>>) {
+        if let Some(prod) =
+            products.get(self.product.expect("ERR: Auto Updater has no product ID!"))
+        {
+            if let Ok(logs) = self.get_logs_after_t(Path::new(&prod.path)) {
+                for (log, _) in &logs {
+                    lfh.write().unwrap().push_from_file(log);
+                }
+
+                if let Some(llog) = logs.last() {
+                    self.last_log = Some(llog.clone());
+                }
+            }
+        }
+
+        self.last_scan_time = Some(Local::now());
     }
 }
 
@@ -260,12 +329,7 @@ impl Default for MyApp {
             time_end_string: time_end.format("%H:%M:%S").to_string(),
             time_end_use: true,
 
-            auto_update: AutoUpdate {
-                usable: false,
-                enabled: false,
-                product: None,
-                last_scan_time: None,
-            },
+            auto_update: AutoUpdate::default(),
 
             loading: false,
             progress_x: Arc::new(RwLock::new(0)),
@@ -540,27 +604,10 @@ impl eframe::App for MyApp {
                     self.loading = false;
                     self.update_stats(ctx);
                 }
-            } else if self.auto_update.enabled {
-                // Auto update
-                let t_old = self.auto_update.last_scan_time.unwrap();
-                let t_now = Local::now();
-                let time_diff = t_now - t_old;
-
-                if time_diff.num_seconds() >= 60 {
-                    self.auto_update.last_scan_time = Some(t_now);
-                    if let Some(product) = self.product_list.get(self.selected_product) {
-                        if let Ok(file_list) = get_logs_since_t(Path::new(&product.path), t_old) {
-                            for log in file_list.iter() {
-                                self.log_master.write().unwrap().push_from_file(log);
-                            }
-
-                            /* ToDo: implement more efficient functions for only adding few logs */
-                            self.selected_test_results.1.clear(); // force update plot after loading new log
-                            self.update_stats(ctx);
-                        }
-                    }
-                }
+            } else if self.auto_update.its_time() {
+                self.auto_update.update(&self.product_list, self.log_master.clone());
             }
+            
 
             // Statistics:
             ui.separator();
