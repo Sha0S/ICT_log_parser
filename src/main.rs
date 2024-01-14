@@ -606,6 +606,7 @@ impl eframe::App for MyApp {
                 }
             } else if self.auto_update.its_time() {
                 self.auto_update.update(&self.product_list, self.log_master.clone());
+                self.update_stats(ctx)
             }
             
 
