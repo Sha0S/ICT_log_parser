@@ -814,7 +814,7 @@ impl eframe::App for MyApp {
             ui.separator();
 
             // Plot mode
-            if self.mode == AppMode::Plot {
+            if self.mode == AppMode::Plot && !self.loading {
                 let lfh = self.log_master.read().unwrap();
                 let testlist = lfh.get_testlist();
                 if !testlist.is_empty() {
