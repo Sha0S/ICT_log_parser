@@ -193,7 +193,7 @@ impl AutoUpdate {
     fn its_time(&self) -> bool {
         if self.enabled {
             if let Some(t) = self.last_scan_time {
-                return (Local::now() - t).num_seconds() > 15;
+                return (Local::now() - t).num_seconds() > 30;
             }
         }
 
