@@ -902,6 +902,8 @@ pub struct LogFileHandler {
     product_id: String, // Product identifier
     testlist: Vec<TList>,
     multiboards: Vec<MultiBoard>,
+
+    sourcelist: Vec<OsString>
 }
 
 pub type HourlyStats = (u64, usize, usize, Vec<(BResult, u64)>); // (time, OK, NOK, Vec<Results>)
@@ -920,6 +922,7 @@ impl LogFileHandler {
             product_id: String::new(),
             testlist: Vec::new(),
             multiboards: Vec::new(),
+            sourcelist: Vec::new(),
         }
     }
 
@@ -930,6 +933,13 @@ impl LogFileHandler {
 
     pub fn push(&mut self, mut log: LogFile) -> bool {
         println!("\tProcessing logfile: {:?}", log.source);
+
+        if self.sourcelist.iter().any(|f| f == &log.source) {
+            println!("\t\tW: Logfile already loaded!");
+            return false;
+        }
+
+        self.sourcelist.push(log.source.clone());
 
         if self.product_id.is_empty() {
             println!("\t\tINFO: Initializing as {}", log.product_id);

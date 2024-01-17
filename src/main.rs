@@ -193,7 +193,7 @@ impl AutoUpdate {
     fn its_time(&self) -> bool {
         if self.enabled {
             if let Some(t) = self.last_scan_time {
-                return (Local::now() - t).num_seconds() > 60;
+                return (Local::now() - t).num_seconds() > 15;
             }
         }
 
@@ -219,21 +219,20 @@ impl AutoUpdate {
         // Idealy we would get last-log from the last manual load. 
         // That would need the re-write of the fn.
         let start = if let Some((_, x)) = self.last_log{
-                x       
+                x - Duration::seconds(5)
         } else {
-            self.last_scan_time.unwrap()
+            self.last_scan_time.unwrap() - Duration::minutes(5)
+            
         };
 
 
-        //if let Some((sl, start)) = &self.last_log {
-            //let start = *st - Duration::minutes(5);
         for file in fs::read_dir(path)? {
             let file = file?;
             let path = file.path();
             if path.is_file() {
                 if let Ok(x) = path.metadata() {
                     let ct: DateTime<Local> = x.modified().unwrap().into();
-                    if ct > start {
+                    if ct >= start {
                         ret.push((path.to_path_buf(), ct));
                     }
                 }
@@ -241,10 +240,6 @@ impl AutoUpdate {
         }
 
         ret.sort_by_key(|k| k.1);
-        //    if let Some(x) = ret.iter_mut().position(|f| f.0 == *sl) {
-        //        ret.drain(..=x);
-        //    }
-        //}
 
         Ok(ret)
     }
