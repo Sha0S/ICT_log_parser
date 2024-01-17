@@ -555,6 +555,7 @@ impl LogFile {
 }
 
 struct Log {
+    source: OsString,
     time_s: u64,
     time_e: u64,
     result: BResult, // Could use a bool too, as it can't be Unknown
@@ -574,6 +575,7 @@ impl Log {
         }
 
         Self {
+            source: log.source,
             time_s: log.time_start,
             time_e: log.time_end,
             result: log.result.into(),
