@@ -1113,6 +1113,7 @@ impl LogFileHandler {
         self.product_id = String::new();
         self.testlist = Vec::new();
         self.multiboards = Vec::new();
+        self.sourcelist.clear();
     }
 
     pub fn get_yields(&self) -> [Yield; 3] {
