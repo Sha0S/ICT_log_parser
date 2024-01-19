@@ -653,6 +653,7 @@ impl eframe::App for MyApp {
                     AUState::Loaded => {
                         let (duration, number) =
                             self.auto_update.push_logs(self.log_master.clone());
+
                         self.status = format!(
                             "{}{}{}{}",
                             MESSAGE[AU_DONE_1][self.lang],
@@ -660,13 +661,13 @@ impl eframe::App for MyApp {
                             MESSAGE[AU_DONE_2][self.lang],
                             number
                         );
-                        self.update_stats(ctx);
+
+                        if number != 0 {
+                            self.update_stats(ctx);
+                        }
                     }
                     AUState::Loading => (),
                 }
-                //if self.auto_update.its_time() {
-                //    self.auto_update.update(&self.product_list, self.log_master.clone());
-                //    self.update_stats(ctx)
             }
 
             // Statistics:
