@@ -81,6 +81,30 @@ fn get_logs_in_path_t(
     Ok(ret)
 }
 
+// For AutoUpdater. Grabs files after time 't', but it will not scan subdirectories
+type PathAndTime = (PathBuf, DateTime<Local>);
+
+fn get_logs_after_t(path: &Path, t: DateTime<Local>) -> Result<Vec<PathAndTime>, std::io::Error> {
+    let mut ret: Vec<PathAndTime> = Vec::new();
+
+    for file in fs::read_dir(path)? {
+        let file = file?;
+        let path = file.path();
+        if path.is_file() {
+            if let Ok(x) = path.metadata() {
+                let ct: DateTime<Local> = x.modified().unwrap().into();
+                if ct > t {
+                    ret.push((path.to_path_buf(), ct));
+                }
+            }
+        }
+    }
+
+    ret.sort_by_key(|k| k.1);
+
+    Ok(ret)
+}
+
 // Turn YYMMDDHH format u64 int to "YY.MM.DD HH:00 - HH:59"
 fn u64_to_timeframe(mut x: u64) -> String {
     let y = x / u64::pow(10, 6);
@@ -163,35 +187,62 @@ enum LoadMode {
     ProductList(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AUState {
+    Standby,
+    Loading,
+    Loaded,
+}
+
 struct AutoUpdate {
     usable: bool,
     enabled: bool,
+    state: Arc<RwLock<AUState>>,
+
     product: Option<usize>,
-    last_log: Option<(PathBuf, DateTime<Local>)>,
+    last_log: Option<DateTime<Local>>,
+    update_start_time: Option<DateTime<Local>>,
     last_scan_time: Option<DateTime<Local>>,
+
+    log_buffer: Arc<RwLock<Vec<PathAndTime>>>,
 }
+
+/*
+ Standby -> its_time --Loading--> gather_logs --Loaded--> push_logs -> Standby
+*/
 
 impl AutoUpdate {
     fn default() -> Self {
         AutoUpdate {
             usable: false,
             enabled: false,
+            state: Arc::new(RwLock::new(AUState::Standby)),
             product: None,
             last_log: None,
+            update_start_time: None,
             last_scan_time: None,
+
+            log_buffer: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     fn clear(&mut self) {
         self.usable = false;
         self.enabled = false;
+        self.state = Arc::new(RwLock::new(AUState::Standby));
         self.product = None;
         self.last_log = None;
+        self.update_start_time = None;
         self.last_scan_time = None;
+        self.log_buffer.write().unwrap().clear();
+    }
+
+    fn state(&self) -> AUState {
+        *self.state.read().unwrap()
     }
 
     fn its_time(&self) -> bool {
-        if self.enabled {
+        if self.enabled && *self.state.read().unwrap() == AUState::Standby {
             if let Some(t) = self.last_scan_time {
                 return (Local::now() - t).num_seconds() > 30;
             }
@@ -200,66 +251,55 @@ impl AutoUpdate {
         false
     }
 
-    /*
-        Will have to test it extensively, original implementation had issues when the log are on a different machine, 
-        and local time of the host was different. 
-
-        Might want to get every log in the even for x minutes befero the last, and then discard the duplicates.
-
-        It also depends on how good the resolution of "time of modification"  is! If it is too low, this won't be reliable on multiboards!!
-    */
-
-    fn get_logs_after_t(
-        &self,
-        path: &Path,
-    ) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
-        let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
-
-        // ToDo:
-        // Idealy we would get last-log from the last manual load. 
-        // That would need the re-write of the fn.
-        let start = if let Some((_, x)) = self.last_log{
-                x - Duration::seconds(5)
-        } else {
-            self.last_scan_time.unwrap() - Duration::minutes(5)
-            
-        };
-
-
-        for file in fs::read_dir(path)? {
-            let file = file?;
-            let path = file.path();
-            if path.is_file() {
-                if let Ok(x) = path.metadata() {
-                    let ct: DateTime<Local> = x.modified().unwrap().into();
-                    if ct >= start {
-                        ret.push((path.to_path_buf(), ct));
-                    }
-                }
-            }
-        }
-
-        ret.sort_by_key(|k| k.1);
-
-        Ok(ret)
-    }
-
-    fn update(&mut self, products: &[Product], lfh: Arc<RwLock<LogFileHandler>>) {
+    fn gather_logs(&mut self, products: &[Product]) {
         if let Some(prod) =
             products.get(self.product.expect("ERR: Auto Updater has no product ID!"))
         {
-            if let Ok(logs) = self.get_logs_after_t(Path::new(&prod.path)) {
-                for (log, _) in &logs {
-                    lfh.write().unwrap().push_from_file(log);
+            self.update_start_time = Some(Local::now());
+            let state_lock = self.state.clone();
+            let log_lock = self.log_buffer.clone();
+            let path = PathBuf::from(&prod.path);
+
+            // ToDo:
+            // Idealy we would get last-log from the last manual load.
+            // That would need the re-write of the fn.
+            let start = if let Some(x) = self.last_log {
+                x - Duration::seconds(5)
+            } else {
+                self.last_scan_time.unwrap() - Duration::minutes(5)
+            };
+
+            thread::spawn(move || {
+                *state_lock.write().unwrap() = AUState::Loading;
+                if let Ok(logs) = get_logs_after_t(&path, start) {
+                    *log_lock.write().unwrap() = logs;
                 }
 
-                if let Some(llog) = logs.last() {
-                    self.last_log = Some(llog.clone());
-                }
+                *state_lock.write().unwrap() = AUState::Loaded;
+            });
+        }
+    }
+
+    fn push_logs(&mut self, lfh: Arc<RwLock<LogFileHandler>>) -> (Duration, usize) {
+        if self.state() != AUState::Loaded {
+            panic!("ERR: AutoUpdate -> Push logs called at wrong time!");
+        }
+
+        let mut new_logs: usize = 0;
+
+        for log in self.log_buffer.read().unwrap().iter() {
+            if lfh.write().unwrap().push_from_file(&log.0) {
+                new_logs += 1;
             }
         }
 
+        self.log_buffer.write().unwrap().clear();
         self.last_scan_time = Some(Local::now());
+        *self.state.write().unwrap() = AUState::Standby;
+        let update_time = Local::now() - self.update_start_time.unwrap();
+
+        println!("Autoupdate done in {update_time}, new logs: {new_logs}");
+        (update_time, new_logs)
     }
 }
 
@@ -570,6 +610,10 @@ impl eframe::App for MyApp {
 
                 ui.monospace(MESSAGE[AUTO_UPDATE][self.lang]);
                 ui.add(egui::Checkbox::without_text(&mut self.auto_update.enabled));
+
+                if self.auto_update.state() != AUState::Standby {
+                    ui.add(egui::Spinner::new());
+                }
             });
 
             // Loading Bar
@@ -599,11 +643,31 @@ impl eframe::App for MyApp {
                     self.loading = false;
                     self.update_stats(ctx);
                 }
-            } else if self.auto_update.its_time() {
-                self.auto_update.update(&self.product_list, self.log_master.clone());
-                self.update_stats(ctx)
+            } else if self.auto_update.enabled {
+                match self.auto_update.state() {
+                    AUState::Standby => {
+                        if self.auto_update.its_time() {
+                            self.auto_update.gather_logs(&self.product_list);
+                        }
+                    }
+                    AUState::Loaded => {
+                        let (duration, number) =
+                            self.auto_update.push_logs(self.log_master.clone());
+                        self.status = format!(
+                            "{}{}{}{}",
+                            MESSAGE[AU_DONE_1][self.lang],
+                            duration.num_milliseconds(),
+                            MESSAGE[AU_DONE_2][self.lang],
+                            number
+                        );
+                        self.update_stats(ctx);
+                    }
+                    AUState::Loading => (),
+                }
+                //if self.auto_update.its_time() {
+                //    self.auto_update.update(&self.product_list, self.log_master.clone());
+                //    self.update_stats(ctx)
             }
-            
 
             // Statistics:
             ui.separator();
