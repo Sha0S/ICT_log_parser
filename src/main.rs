@@ -293,6 +293,10 @@ impl AutoUpdate {
             }
         }
 
+        if let Some((_, x)) = self.log_buffer.read().unwrap().last() {
+            self.last_log = Some(*x);
+        }
+
         self.log_buffer.write().unwrap().clear();
         self.last_scan_time = Some(Local::now());
         *self.state.write().unwrap() = AUState::Standby;
