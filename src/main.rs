@@ -1034,13 +1034,15 @@ impl eframe::App for MyApp {
 
             // Hourly mode
             if self.mode == AppMode::Hourly && !self.hourly_stats.is_empty() {
+                let width_for_last_col = ui.available_width() - 250.0;
+
                 ui.push_id("hourly", |ui| {
                     TableBuilder::new(ui)
                         .striped(true)
-                        .column(Column::initial(150.0).resizable(true))
-                        .column(Column::initial(50.0).resizable(true))
-                        .column(Column::initial(50.0).resizable(true))
-                        .column(Column::auto().resizable(true))
+                        .column(Column::initial(150.0))
+                        .column(Column::initial(50.0))
+                        .column(Column::initial(50.0))
+                        .column(Column::remainder())
                         .header(20.0, |mut header| {
                             header.col(|ui| {
                                 ui.heading(MESSAGE_H[TIME][self.lang]);
@@ -1057,7 +1059,11 @@ impl eframe::App for MyApp {
                         })
                         .body(|mut body| {
                             for hour in &self.hourly_stats {
-                                body.row(15.0, |mut row| {
+                                let results_per_row =
+                                    20.0_f32.max((width_for_last_col / 14.0).floor());
+                                let needed_rows = (hour.3.len() as f32 / results_per_row).ceil();
+
+                                body.row(14.0 * needed_rows, |mut row| {
                                     row.col(|ui| {
                                         ui.label(u64_to_timeframe(hour.0));
                                     });
@@ -1068,12 +1074,17 @@ impl eframe::App for MyApp {
                                         ui.label(format!("{}", hour.2));
                                     });
                                     row.col(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
-                                            for (r, _) in &hour.3 {
-                                                ui.label(RichText::new("■").color(r.into_color()));
-                                            }
-                                        });
+                                        ui.spacing_mut().interact_size = Vec2::new(0.0, 0.0);
+                                        ui.spacing_mut().item_spacing = Vec2::new(3.0, 3.0);
+
+                                        let chunks = hour.3.chunks(results_per_row as usize);
+                                        for chunk in chunks {
+                                            ui.horizontal(|ui| {
+                                                for (r, _) in chunk {
+                                                    draw_result_box(ui, r);
+                                                }
+                                            });
+                                        }
                                     });
                                 });
                             }
@@ -1238,4 +1249,19 @@ fn c_formater(point: &egui_plot::PlotPoint, _: &egui_plot::PlotBounds) -> String
     let s = point.x % 60.0;
 
     format!("x: {:+1.4E}\t t: {h:02.0}:{m:02.0}:{s:02.0}", point.y)
+}
+
+fn draw_result_box(ui: &mut egui::Ui, result: &BResult) -> egui::Response {
+    let desired_size = egui::vec2(10.0, 10.0);
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&response);
+
+        let rect = rect.expand(visuals.expansion);
+
+        ui.painter().rect_filled(rect, 2.0, result.into_color());
+    }
+
+    response
 }
