@@ -1133,12 +1133,10 @@ impl eframe::App for MyApp {
                                             );
                                         });
                                         row.col(|ui| {
+                                            ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
                                             ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing = Vec2::new(1.0, 1.0);
                                                 for r in &sb.2 {
-                                                    ui.label(
-                                                        RichText::new("■").color(r.into_color()),
-                                                    );
+                                                    draw_result_box(ui, r);
                                                 }
                                             });
                                         });
