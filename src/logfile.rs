@@ -29,7 +29,7 @@ fn strip_index(s: &str) -> &str {
     chars.as_str()
 }
 
-// For digital and boundaryscan tests. 
+// For digital and boundaryscan tests.
 // Base is "testname%digital_" or "testname%boundary_", and the function appends the next unused 'counter' to it.
 fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (String, usize) {
     let name = format!("{}{}", base, counter);
@@ -716,12 +716,19 @@ impl Board {
     }
 }
 
+#[derive(Clone)]
+pub struct MbResult {
+    pub start: u64,
+    pub end: u64,
+    pub result: BResult,
+    pub panels: Vec<BResult>,
+}
 struct MultiBoard {
     DMC: String,
     boards: Vec<Board>,
 
     // ( Start time, Multiboard test result, <Result of the individual boards>)
-    results: Vec<(u64, BResult, Vec<BResult>)>,
+    results: Vec<MbResult>,
 }
 
 impl MultiBoard {
@@ -760,8 +767,8 @@ impl MultiBoard {
 
         self.update_results();
 
-        for (_, _, res) in &self.results {
-            for r in res {
+        for result in &self.results {
+            for r in &result.panels {
                 if *r == BResult::Pass {
                     sb_total_yield.0 += 1;
                 } else if *r == BResult::Fail {
@@ -771,7 +778,7 @@ impl MultiBoard {
         }
 
         if let Some(x) = self.results.first() {
-            for r in &x.2 {
+            for r in &x.panels {
                 if *r == BResult::Pass {
                     sb_first_yield.0 += 1;
                 } else if *r == BResult::Fail {
@@ -783,7 +790,7 @@ impl MultiBoard {
         }
 
         if let Some(x) = self.results.last() {
-            for r in &x.2 {
+            for r in &x.panels {
                 if *r == BResult::Pass {
                     sb_final_yield.0 += 1;
                 } else if *r == BResult::Fail {
@@ -804,19 +811,25 @@ impl MultiBoard {
             'forlog: for l in &b.logs {
                 // 1 - check if there is a results with matching "time"
                 for r in &mut self.results {
-                    if r.0 == l.time_s {
+                    if r.start == l.time_s {
                         // write the BResult in to r.2.index
-                        r.2[b.index - 1] = l.result;
+                        r.panels[b.index - 1] = l.result;
+
+                        // if time_e is higher than the saved end time, then overwrite it
+                        if r.end < l.time_e {
+                            r.end = l.time_e;
+                        }
                         continue 'forlog;
                     }
                 }
                 // 2 - if not then make one
-                let mut new_res = (
-                    l.time_s,
-                    BResult::Unknown,
-                    vec![BResult::Unknown; self.boards.len()],
-                );
-                new_res.2[b.index - 1] = l.result;
+                let mut new_res = MbResult {
+                    start: l.time_s,
+                    end: l.time_e,
+                    result: BResult::Unknown,
+                    panels: vec![BResult::Unknown; self.boards.len()],
+                };
+                new_res.panels[b.index - 1] = l.result;
                 self.results.push(new_res);
             }
         }
@@ -825,7 +838,7 @@ impl MultiBoard {
         for res in &mut self.results {
             let mut all_ok = true;
             let mut has_unknown = false;
-            for r in &res.2 {
+            for r in &res.panels {
                 match r {
                     BResult::Unknown => has_unknown = true,
                     BResult::Fail => all_ok = false,
@@ -834,20 +847,19 @@ impl MultiBoard {
             }
 
             if !all_ok {
-                res.1 = BResult::Fail;
+                res.result = BResult::Fail;
             } else if has_unknown {
-                res.1 = BResult::Unknown;
-                //println!("MB marked as Unknown!");
+                res.result = BResult::Unknown;
             } else {
-                res.1 = BResult::Pass
+                res.result = BResult::Pass
             }
         }
 
         // Sort results by time.
-        self.results.sort_by_key(|k| k.0);
+        self.results.sort_by_key(|k| k.start);
     }
 
-    fn get_results(&self) -> &Vec<(u64, BResult, Vec<BResult>)> {
+    fn get_results(&self) -> &Vec<MbResult> {
         &self.results
     }
 
@@ -903,11 +915,11 @@ pub struct LogFileHandler {
     testlist: Vec<TList>,
     multiboards: Vec<MultiBoard>,
 
-    sourcelist: Vec<OsString>
+    sourcelist: Vec<OsString>,
 }
 
 pub type HourlyStats = (u64, usize, usize, Vec<(BResult, u64)>); // (time, OK, NOK, Vec<Results>)
-pub type MbStats = (String, Vec<(u64, BResult, Vec<BResult>)>); // (DMC, Vec<(time, Multiboard result, Vec<Board results>)>)
+pub type MbStats = (String, Vec<MbResult>); // (DMC, Vec<(time, Multiboard result, Vec<Board results>)>)
 
 impl LogFileHandler {
     pub fn new() -> Self {
@@ -1063,26 +1075,26 @@ impl LogFileHandler {
                 self.pp_multiboard = b.boards.len();
             }
 
-            for (_, r, _) in &b.results {
-                if *r == BResult::Pass {
+            for result in &b.results {
+                if result.result == BResult::Pass {
                     self.mb_total_yield.0 += 1;
-                } else if *r == BResult::Fail {
+                } else if result.result == BResult::Fail {
                     self.mb_total_yield.1 += 1;
                 }
             }
 
             if let Some(x) = b.results.first() {
-                if x.1 == BResult::Pass {
+                if x.result == BResult::Pass {
                     self.mb_first_yield.0 += 1;
-                } else if x.1 == BResult::Fail {
+                } else if x.result == BResult::Fail {
                     self.mb_first_yield.1 += 1;
                 }
             }
 
             if let Some(x) = b.results.last() {
-                if x.1 == BResult::Pass {
+                if x.result == BResult::Pass {
                     self.mb_final_yield.0 += 1;
-                } else if x.1 == BResult::Fail {
+                } else if x.result == BResult::Fail {
                     self.mb_final_yield.1 += 1;
                 }
             }
@@ -1183,21 +1195,21 @@ impl LogFileHandler {
 
         for mb in &self.multiboards {
             'resfor: for res in &mb.results {
-                let time = res.0 / u64::pow(10, 4);
-                let time_2 = res.0 % u64::pow(10, 4);
+                let time = res.end / u64::pow(10, 4);
+                let time_2 = res.end % u64::pow(10, 4);
 
                 //println!("{} - {} - {}", res.0, time, time_2);
 
                 // check if a entry for "time" exists
                 for r in &mut ret {
                     if r.0 == time {
-                        if res.1 == BResult::Pass {
+                        if res.result == BResult::Pass {
                             r.1 += 1;
                         } else {
                             r.2 += 1;
                         }
 
-                        r.3.push((res.1, time_2));
+                        r.3.push((res.result, time_2));
 
                         continue 'resfor;
                     }
@@ -1205,9 +1217,9 @@ impl LogFileHandler {
 
                 ret.push((
                     time,
-                    if res.1 == BResult::Pass { 1 } else { 0 },
-                    if res.1 != BResult::Pass { 1 } else { 0 },
-                    vec![(res.1, time_2)],
+                    if res.result == BResult::Pass { 1 } else { 0 },
+                    if res.result != BResult::Pass { 1 } else { 0 },
+                    vec![(res.result, time_2)],
                 ));
             }
         }
@@ -1229,7 +1241,7 @@ impl LogFileHandler {
             ret.push((mb.DMC.clone(), mb.get_results().clone()));
         }
 
-        ret.sort_by_key(|k| k.1.last().unwrap().0);
+        ret.sort_by_key(|k| k.1.last().unwrap().start);
         ret
     }
 

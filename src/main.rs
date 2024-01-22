@@ -1103,9 +1103,9 @@ impl eframe::App for MyApp {
                         .column(Column::auto().resizable(true))
                         .body(|mut body| {
                             for (i, mb) in self.multiboard_results.iter().enumerate() {
-                                let color_mb = mb.1.last().unwrap().1.into_dark_color();
+                                let color_mb = mb.1.last().unwrap().result.into_dark_color();
                                 for (i2, sb) in mb.1.iter().enumerate() {
-                                    let color_sb = sb.1.into_dark_color();
+                                    let color_sb = sb.result.into_dark_color();
                                     body.row(15.0, |mut row| {
                                         row.col(|ui| {
                                             if i2 == 0 {
@@ -1128,14 +1128,14 @@ impl eframe::App for MyApp {
                                         row.col(|ui| {
                                             //ui.label(u64_to_string( sb.0));
                                             ui.label(
-                                                egui::RichText::new(u64_to_string(sb.0))
+                                                egui::RichText::new(u64_to_string(sb.start))
                                                     .color(color_sb),
                                             );
                                         });
                                         row.col(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
                                             ui.horizontal(|ui| {
-                                                for r in &sb.2 {
+                                                for r in &sb.panels {
                                                     draw_result_box(ui, r);
                                                 }
                                             });
