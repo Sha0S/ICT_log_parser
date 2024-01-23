@@ -278,6 +278,7 @@ pub struct LogFile {
     time_end: u64,
 
     tests: Vec<Test>,
+    report: Vec<String>
 }
 
 impl LogFile {
@@ -292,6 +293,7 @@ impl LogFile {
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
         let mut tests: Vec<Test> = Vec::new();
+        let mut report: Vec<String> = Vec::new();
 
         // pre-populate pins test
         tests.push(Test {
@@ -387,7 +389,9 @@ impl LogFile {
                     tests.push(test);
                 }
                 "{@RPT" => {
-                    // report block -> ignored
+                    if let Some(rpt) = parts.next() {
+                        report.push(rpt.trim_end_matches('}').to_owned());
+                    }
                 }
                 "{@BLOCK" => {
                     let name = strip_index(parts.next().unwrap()).to_string();
@@ -538,8 +542,6 @@ impl LogFile {
             iline = lines.next();
         }
 
-        //println!("\t\tINFO: Done.");
-
         Self {
             source,
             DMC,
@@ -550,6 +552,7 @@ impl LogFile {
             time_start,
             time_end,
             tests,
+            report
         }
     }
 }
@@ -562,6 +565,8 @@ struct Log {
 
     results: Vec<TResult>,
     limits: Vec<TLimit>,
+
+    report: Vec<String>
 }
 
 impl Log {
@@ -581,6 +586,7 @@ impl Log {
             result: log.result.into(),
             results,
             limits,
+            report: log.report
         }
     }
 }
