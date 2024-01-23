@@ -278,7 +278,7 @@ pub struct LogFile {
     time_end: u64,
 
     tests: Vec<Test>,
-    report: Vec<String>
+    report: Vec<String>,
 }
 
 impl LogFile {
@@ -412,7 +412,17 @@ impl LogFile {
                         let mut part = line.split("{@");
                         parts = part.nth(1).unwrap().split('|');
 
-                        let ttype = TType::new(parts.next().unwrap());
+                        let first = parts.next().unwrap();
+                        if first == "RPT" {
+                            if let Some(rpt) = parts.next() {
+                                report.push(rpt.trim_end_matches('}').to_owned());
+                            }
+
+                            iline = lines.next();
+                            continue;
+                        }
+
+                        let ttype = TType::new(first);
 
                         match ttype {
                             TType::Unknown => {
@@ -552,7 +562,7 @@ impl LogFile {
             time_start,
             time_end,
             tests,
-            report
+            report,
         }
     }
 }
@@ -566,7 +576,7 @@ struct Log {
     results: Vec<TResult>,
     limits: Vec<TLimit>,
 
-    report: Vec<String>
+    report: Vec<String>,
 }
 
 impl Log {
@@ -586,7 +596,7 @@ impl Log {
             result: log.result.into(),
             results,
             limits,
-            report: log.report
+            report: log.report,
         }
     }
 }
@@ -630,6 +640,32 @@ impl Board {
             }
         }
         true
+    }
+
+    fn get_reports(&self) -> Vec<String> {
+        let mut ret: Vec<String> = vec![format!("{} - {}\n", self.index, self.DMC)];
+
+        for (i, log) in self.logs.iter().enumerate() {
+            if log.result == BResult::Pass {
+                ret.push(format!("Log #{i}: Pass\n"));
+
+            } else {
+                ret.push(format!("Log #{i}: Fail\n"));
+
+                if log.report.is_empty() {
+                    ret.push(String::from("No report field found in log!"));
+                    ret.push(String::from("Enable it in testplan!"));
+                } else {
+                    for rpt in &log.report {
+                        ret.push(format!("\t{rpt}"));
+                    }
+                }
+            }
+
+            ret.push("\n".to_string());
+        }
+
+        ret
     }
 
     fn export_to_col(
@@ -904,6 +940,18 @@ impl MultiBoard {
 
         resultlist
     }
+
+    fn get_reports(&self) -> Vec<String> {
+        let mut ret: Vec<String> = Vec::new();
+
+        for sb in &self.boards {
+            if !sb.all_ok() {
+                ret.append(&mut sb.get_reports());
+            }
+        }
+
+        ret
+    }
 }
 
 pub struct LogFileHandler {
@@ -924,7 +972,7 @@ pub struct LogFileHandler {
     sourcelist: Vec<OsString>,
 }
 
-pub type HourlyStats = (u64, usize, usize, Vec<(BResult, u64)>); // (time, OK, NOK, Vec<Results>)
+pub type HourlyStats = (u64, usize, usize, Vec<(BResult, u64, String)>); // (time, OK, NOK, Vec<Results>)
 pub type MbStats = (String, Vec<MbResult>); // (DMC, Vec<(time, Multiboard result, Vec<Board results>)>)
 
 impl LogFileHandler {
@@ -1215,7 +1263,7 @@ impl LogFileHandler {
                             r.2 += 1;
                         }
 
-                        r.3.push((res.result, time_2));
+                        r.3.push((res.result, time_2, mb.DMC.clone()));
 
                         continue 'resfor;
                     }
@@ -1225,7 +1273,7 @@ impl LogFileHandler {
                     time,
                     if res.result == BResult::Pass { 1 } else { 0 },
                     if res.result != BResult::Pass { 1 } else { 0 },
-                    vec![(res.result, time_2)],
+                    vec![(res.result, time_2, mb.DMC.clone())],
                 ));
             }
         }
@@ -1502,5 +1550,26 @@ impl LogFileHandler {
         }
 
         let _ = umya_spreadsheet::writer::xlsx::write(&book, path);
+    }
+
+    fn get_board_w_DMC(&self, DMC: &str) -> Option<&MultiBoard> {
+        for mb in self.multiboards.iter() {
+            for sb in &mb.boards {
+                if sb.DMC == DMC {
+                    return Some(mb);
+                }
+            }
+        }
+
+        println!("Found none as {DMC}");
+        None
+    }
+
+    pub fn get_report_for_DMC(&self, DMC: &str) -> Vec<String> {
+        if let Some(board) = self.get_board_w_DMC(DMC) {
+            return board.get_reports();
+        }
+
+        Vec::new()
     }
 }

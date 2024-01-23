@@ -307,6 +307,57 @@ impl AutoUpdate {
     }
 }
 
+struct InfoViewPort {
+    enabled: bool,
+    DMC: String,
+    report: Vec<String>,
+}
+
+impl InfoViewPort {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            DMC: String::new(),
+            report: Vec::new(),
+        }
+    }
+
+    fn enable(&mut self, DMC: String, report: Vec<String>) {
+        self.enabled = true;
+        self.DMC = DMC;
+        self.report = report;
+    }
+
+    fn update(&mut self, ctx: &egui::Context) {
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of(self.DMC.clone()),
+            egui::ViewportBuilder::default()
+                .with_title(self.DMC.clone())
+                .with_inner_size([400.0, 400.0]),
+            |ctx, class| {
+                assert!(
+                    class == egui::ViewportClass::Immediate,
+                    "This egui backend doesn't support multiple viewports"
+                );
+
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .show(ui, |ui| {
+                            for rpt in self.report.iter() {
+                                ui.label(rpt);
+                            }
+                        });
+                });
+
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    self.enabled = false;
+                }
+            },
+        );
+    }
+}
+
 struct MyApp {
     status: String,
     lang: usize,
@@ -345,6 +396,8 @@ struct MyApp {
     selected_test_results: (TType, Vec<(u64, usize, TResult, TLimit)>),
 
     export_settings: ExportSettings,
+
+    info_vp: InfoViewPort,
 }
 
 impl Default for MyApp {
@@ -389,6 +442,7 @@ impl Default for MyApp {
             selected_test_results: (TType::Unknown, Vec::new()),
 
             export_settings: ExportSettings::default(),
+            info_vp: InfoViewPort::default(),
         }
     }
 }
@@ -811,7 +865,21 @@ impl eframe::App for MyApp {
                                     for fail in &x.failed {
                                         body.row(20.0, |mut row| {
                                             row.col(|ui| {
-                                                ui.label(fail.0.to_string());
+                                                if ui
+                                                    .add(
+                                                        egui::Label::new(fail.0.to_string())
+                                                            .sense(Sense::click()),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    self.info_vp.enable(
+                                                        fail.0.to_string(),
+                                                        self.log_master
+                                                            .read()
+                                                            .unwrap()
+                                                            .get_report_for_DMC(&fail.0),
+                                                    );
+                                                }
                                             });
                                             row.col(|ui| {
                                                 ui.label(u64_to_string(fail.1));
@@ -1080,8 +1148,16 @@ impl eframe::App for MyApp {
                                         let chunks = hour.3.chunks(results_per_row as usize);
                                         for chunk in chunks {
                                             ui.horizontal(|ui| {
-                                                for (r, _) in chunk {
-                                                    draw_result_box(ui, r);
+                                                for (r, _, DMC) in chunk {
+                                                    if draw_result_box(ui, r).clicked() {
+                                                        self.info_vp.enable(
+                                                            DMC.clone(),
+                                                            self.log_master
+                                                                .read()
+                                                                .unwrap()
+                                                                .get_report_for_DMC(DMC),
+                                                        )
+                                                    }
                                                 }
                                             });
                                         }
@@ -1119,10 +1195,24 @@ impl eframe::App for MyApp {
                                         row.col(|ui| {
                                             if i2 == 0 {
                                                 //ui.label(mb.0.clone());
-                                                ui.label(
-                                                    egui::RichText::new(mb.0.clone())
-                                                        .color(color_mb),
-                                                );
+                                                if ui
+                                                    .add(
+                                                        egui::Label::new(
+                                                            egui::RichText::new(mb.0.clone())
+                                                                .color(color_mb),
+                                                        )
+                                                        .sense(Sense::click()),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    self.info_vp.enable(
+                                                        mb.0.clone(),
+                                                        self.log_master
+                                                            .read()
+                                                            .unwrap()
+                                                            .get_report_for_DMC(&mb.0),
+                                                    );
+                                                }
                                             }
                                         });
                                         row.col(|ui| {
@@ -1135,8 +1225,16 @@ impl eframe::App for MyApp {
                                         row.col(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
                                             ui.horizontal(|ui| {
-                                                for r in &sb.panels {
-                                                    draw_result_box(ui, r);
+                                                for r in sb.panels.iter() {
+                                                    if draw_result_box(ui, r).clicked() {
+                                                        self.info_vp.enable(
+                                                            mb.0.clone(),
+                                                            self.log_master
+                                                                .read()
+                                                                .unwrap()
+                                                                .get_report_for_DMC(&mb.0),
+                                                        );
+                                                    }
                                                 }
                                             });
                                         });
@@ -1225,6 +1323,10 @@ impl eframe::App for MyApp {
                 }
             }
         });
+
+        if self.info_vp.enabled {
+            self.info_vp.update(ctx);
+        }
     }
 }
 
