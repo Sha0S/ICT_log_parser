@@ -19,6 +19,10 @@ impl LogInfoWindow {
         }
     }
 
+    pub fn enable(&mut self) {
+        self.enabled = true;
+    }
+
     pub fn open_first_NOK(&mut self, target_DMC: String, lfh: Arc<RwLock<LogFileHandler>>) {
         if let Some(report) = lfh.read().unwrap().get_report_for_SB_NOK(&target_DMC) {
             self.enabled = true;

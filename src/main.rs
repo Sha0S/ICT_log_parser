@@ -880,6 +880,10 @@ impl eframe::App for MyApp {
 
             // Top "menu bar"
             ui.horizontal(|ui| {
+                if ui.button("🔎").clicked() {
+                    self.info_vp.enable();
+                }
+
                 if ui.button(MESSAGE_E[EXPORT_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Export;
                 }
