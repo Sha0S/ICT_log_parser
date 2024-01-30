@@ -1,14 +1,12 @@
-use std::sync::{Arc, RwLock};
 use crate::LogFileHandler;
-
-
+use std::sync::{Arc, RwLock};
 
 pub struct LogInfoWindow {
     enabled: bool,
     DMC: String,
     report: Vec<String>,
 
-    search_bar: String
+    search_bar: String,
 }
 
 impl LogInfoWindow {
@@ -17,12 +15,39 @@ impl LogInfoWindow {
             enabled: false,
             DMC: String::new(),
             report: Vec::new(),
-            search_bar: String::new()
+            search_bar: String::new(),
+        }
+    }
+
+    pub fn open_first_NOK(&mut self, target_DMC: String, lfh: Arc<RwLock<LogFileHandler>>) {
+        if let Some(report) = lfh.read().unwrap().get_report_for_SB_NOK(&target_DMC) {
+            self.enabled = true;
+            self.DMC = target_DMC.clone();
+            self.search_bar = target_DMC;
+            self.report = report;
+        }
+    }
+
+    pub fn open_w_index(
+        &mut self,
+        target_DMC: String,
+        index: usize,
+        lfh: Arc<RwLock<LogFileHandler>>,
+    ) {
+        if let Some(report) = lfh
+            .read()
+            .unwrap()
+            .get_report_for_SB_w_index(&target_DMC, index)
+        {
+            self.enabled = true;
+            self.DMC = target_DMC.clone();
+            self.search_bar = target_DMC;
+            self.report = report;
         }
     }
 
     pub fn open(&mut self, target_DMC: String, lfh: Arc<RwLock<LogFileHandler>>) {
-        if let Some(report) = lfh.read().unwrap().get_report_for_DMC(&target_DMC) {
+        if let Some(report) = lfh.read().unwrap().get_report_for_SB(&target_DMC) {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
@@ -41,23 +66,23 @@ impl LogInfoWindow {
                 .with_title(self.DMC.clone())
                 .with_inner_size([400.0, 400.0]),
             |ctx, class| {
-
                 assert!(
                     class == egui::ViewportClass::Immediate,
                     "This egui backend doesn't support multiple viewports"
                 );
 
                 egui::CentralPanel::default().show(ctx, |ui| {
-
-                    ui.horizontal( |ui| {
+                    ui.horizontal(|ui| {
                         ui.monospace("DMC:");
 
                         let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.search_bar).desired_width(300.0)
+                            egui::TextEdit::singleline(&mut self.search_bar).desired_width(300.0),
                         );
 
                         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            if let Some(report) = lfh.read().unwrap().get_report_for_DMC(&self.search_bar) {
+                            if let Some(report) =
+                                lfh.read().unwrap().get_report_for_SB(&self.search_bar)
+                            {
                                 self.DMC = self.search_bar.clone();
                                 self.report = report;
                             }
@@ -66,13 +91,12 @@ impl LogInfoWindow {
 
                     ui.separator();
 
-
                     egui::ScrollArea::vertical()
                         .auto_shrink(false)
                         .show(ui, |ui| {
                             for rpt in self.report.iter() {
                                 //ui.label(rpt);
-                                ui.text_edit_singleline( &mut rpt.as_str());
+                                ui.text_edit_singleline(&mut rpt.as_str());
                             }
                         });
                 });

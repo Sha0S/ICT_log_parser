@@ -1099,7 +1099,7 @@ impl eframe::App for MyApp {
                                             ui.horizontal(|ui| {
                                                 for (r, _, DMC) in chunk {
                                                     if draw_result_box(ui, r).clicked() {
-                                                        self.info_vp.open(
+                                                        self.info_vp.open_first_NOK(
                                                             DMC.clone(),
                                                             self.log_master.clone(),
                                                         )
@@ -1151,7 +1151,7 @@ impl eframe::App for MyApp {
                                                     )
                                                     .clicked()
                                                 {
-                                                    self.info_vp.open(
+                                                    self.info_vp.open_first_NOK(
                                                         mb.0.clone(),
                                                         self.log_master.clone(),
                                                     );
@@ -1168,10 +1168,11 @@ impl eframe::App for MyApp {
                                         row.col(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
                                             ui.horizontal(|ui| {
-                                                for r in sb.panels.iter() {
+                                                for (sb_index, r) in sb.panels.iter().enumerate() {
                                                     if draw_result_box(ui, r).clicked() {
-                                                        self.info_vp.open(
+                                                        self.info_vp.open_w_index(
                                                             mb.0.clone(),
+                                                            sb_index,
                                                             self.log_master.clone(),
                                                         );
                                                     }

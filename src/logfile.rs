@@ -1593,4 +1593,26 @@ impl LogFileHandler {
 
         None
     }
+
+    pub fn get_report_for_SB_w_index(&self, DMC: &str, index: usize) -> Option<Vec<String>> {
+        if let Some(mb) = self.get_mb_w_DMC(DMC) {
+            if let Some(board) = mb.boards.get(index) {
+                return Some(board.get_reports());
+            }
+        }
+
+        None
+    }
+
+    pub fn get_report_for_SB_NOK(&self, DMC: &str) -> Option<Vec<String>> {
+        if let Some(mb) = self.get_mb_w_DMC(DMC) {
+            for sb in mb.boards.iter() {
+                if !sb.all_ok() {
+                    return Some(sb.get_reports());
+                }
+            }
+        }
+
+        None
+    }
 }
