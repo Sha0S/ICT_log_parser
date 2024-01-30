@@ -1101,7 +1101,7 @@ impl eframe::App for MyApp {
                                                     if draw_result_box(ui, r).clicked() {
                                                         self.info_vp.open(
                                                             DMC.clone(),
-                                                            self.log_master.clone()
+                                                            self.log_master.clone(),
                                                         )
                                                     }
                                                 }
@@ -1153,7 +1153,7 @@ impl eframe::App for MyApp {
                                                 {
                                                     self.info_vp.open(
                                                         mb.0.clone(),
-                                                        self.log_master.clone()
+                                                        self.log_master.clone(),
                                                     );
                                                 }
                                             }
@@ -1172,7 +1172,7 @@ impl eframe::App for MyApp {
                                                     if draw_result_box(ui, r).clicked() {
                                                         self.info_vp.open(
                                                             mb.0.clone(),
-                                                            self.log_master.clone()
+                                                            self.log_master.clone(),
                                                         );
                                                     }
                                                 }

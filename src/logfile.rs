@@ -643,14 +643,14 @@ impl Board {
     }
 
     fn get_reports(&self) -> Vec<String> {
-        let mut ret: Vec<String> = vec![format!("{} - {}", self.index, self.DMC)];
+        //let mut ret: Vec<String> = vec![format!("{} - {}", self.index, self.DMC)];
+        let mut ret: Vec<String> = Vec::new();
 
         for (i, log) in self.logs.iter().enumerate() {
             if log.result == BResult::Pass {
-                ret.push(format!("Log #{i}: Pass"));
-
+                ret.push(format!("Log #{i} - {}: Pass", u64_to_string(log.time_e)));
             } else {
-                ret.push(format!("Log #{i}: Fail"));
+                ret.push(format!("Log #{i} - {}: Fail", u64_to_string(log.time_e)));
 
                 if log.report.is_empty() {
                     ret.push(String::from("No report field found in log!"));
@@ -1552,7 +1552,7 @@ impl LogFileHandler {
         let _ = umya_spreadsheet::writer::xlsx::write(&book, path);
     }
 
-    fn get_board_w_DMC(&self, DMC: &str) -> Option<&MultiBoard> {
+    fn get_mb_w_DMC(&self, DMC: &str) -> Option<&MultiBoard> {
         for mb in self.multiboards.iter() {
             for sb in &mb.boards {
                 if sb.DMC == DMC {
@@ -1565,8 +1565,29 @@ impl LogFileHandler {
         None
     }
 
-    pub fn get_report_for_DMC(&self, DMC: &str) -> Option<Vec<String>> {
-        if let Some(board) = self.get_board_w_DMC(DMC) {
+    fn get_sb_w_DMC(&self, DMC: &str) -> Option<&Board> {
+        for mb in self.multiboards.iter() {
+            for sb in &mb.boards {
+                if sb.DMC == DMC {
+                    return Some(sb);
+                }
+            }
+        }
+
+        println!("Found none as {DMC}");
+        None
+    }
+
+    pub fn get_report_for_MB(&self, DMC: &str) -> Option<Vec<String>> {
+        if let Some(board) = self.get_mb_w_DMC(DMC) {
+            return Some(board.get_reports());
+        }
+
+        None
+    }
+
+    pub fn get_report_for_SB(&self, DMC: &str) -> Option<Vec<String>> {
+        if let Some(board) = self.get_sb_w_DMC(DMC) {
             return Some(board.get_reports());
         }
 
