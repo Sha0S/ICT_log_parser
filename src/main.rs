@@ -11,6 +11,9 @@ use chrono::*;
 mod logfile;
 use logfile::*;
 
+mod log_info_window;
+use log_info_window::*;
+
 use std::fs;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
@@ -307,57 +310,6 @@ impl AutoUpdate {
     }
 }
 
-struct InfoViewPort {
-    enabled: bool,
-    DMC: String,
-    report: Vec<String>,
-}
-
-impl InfoViewPort {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            DMC: String::new(),
-            report: Vec::new(),
-        }
-    }
-
-    fn enable(&mut self, DMC: String, report: Vec<String>) {
-        self.enabled = true;
-        self.DMC = DMC;
-        self.report = report;
-    }
-
-    fn update(&mut self, ctx: &egui::Context) {
-        ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of(self.DMC.clone()),
-            egui::ViewportBuilder::default()
-                .with_title(self.DMC.clone())
-                .with_inner_size([400.0, 400.0]),
-            |ctx, class| {
-                assert!(
-                    class == egui::ViewportClass::Immediate,
-                    "This egui backend doesn't support multiple viewports"
-                );
-
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .show(ui, |ui| {
-                            for rpt in self.report.iter() {
-                                ui.label(rpt);
-                            }
-                        });
-                });
-
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    self.enabled = false;
-                }
-            },
-        );
-    }
-}
-
 struct MyApp {
     status: String,
     lang: usize,
@@ -397,7 +349,7 @@ struct MyApp {
 
     export_settings: ExportSettings,
 
-    info_vp: InfoViewPort,
+    info_vp: LogInfoWindow,
 }
 
 impl Default for MyApp {
@@ -442,7 +394,7 @@ impl Default for MyApp {
             selected_test_results: (TType::Unknown, Vec::new()),
 
             export_settings: ExportSettings::default(),
-            info_vp: InfoViewPort::default(),
+            info_vp: LogInfoWindow::default(),
         }
     }
 }
@@ -1324,7 +1276,7 @@ impl eframe::App for MyApp {
             }
         });
 
-        if self.info_vp.enabled {
+        if self.info_vp.enabled() {
             self.info_vp.update(ctx);
         }
     }
