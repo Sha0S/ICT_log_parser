@@ -86,6 +86,8 @@ impl LogInfoWindow {
                                 self.DMC = self.search_bar.clone();
                                 self.report = report.join("\n");
                             }
+
+                            ctx.memory_mut(|mem| mem.request_focus(response.id))
                         }
                     });
 
