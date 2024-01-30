@@ -648,13 +648,13 @@ impl Board {
 
         for (i, log) in self.logs.iter().enumerate() {
             if log.result == BResult::Pass {
-                ret.push(format!("Log #{i} - {}: Pass", u64_to_string(log.time_e)));
+                ret.push(format!("Log #{i} - {}: Pass\n", u64_to_string(log.time_e)));
             } else {
-                ret.push(format!("Log #{i} - {}: Fail", u64_to_string(log.time_e)));
+                ret.push(format!("Log #{i} - {}: Fail\n", u64_to_string(log.time_e)));
 
                 if log.report.is_empty() {
-                    ret.push(String::from("No report field found in log!"));
-                    ret.push(String::from("Enable it in testplan!"));
+                    ret.push(String::from("No report field found in log!\n"));
+                    ret.push(String::from("Enable it in testplan!\n"));
                 } else {
                     for rpt in &log.report {
                         ret.push(format!("\t{rpt}"));
@@ -662,7 +662,7 @@ impl Board {
                 }
             }
 
-            ret.push("".to_string());
+            ret.push("\n".to_string());
         }
 
         ret

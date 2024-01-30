@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 pub struct LogInfoWindow {
     enabled: bool,
     DMC: String,
-    report: Vec<String>,
+    report: String,
 
     search_bar: String,
 }
@@ -14,7 +14,7 @@ impl LogInfoWindow {
         Self {
             enabled: false,
             DMC: String::new(),
-            report: Vec::new(),
+            report: String::new(),
             search_bar: String::new(),
         }
     }
@@ -24,7 +24,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report;
+            self.report = report.join("\n");
         }
     }
 
@@ -42,7 +42,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report;
+            self.report = report.join("\n");
         }
     }
 
@@ -51,7 +51,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report;
+            self.report = report.join("\n");
         }
     }
 
@@ -84,7 +84,7 @@ impl LogInfoWindow {
                                 lfh.read().unwrap().get_report_for_SB(&self.search_bar)
                             {
                                 self.DMC = self.search_bar.clone();
-                                self.report = report;
+                                self.report = report.join("\n");
                             }
                         }
                     });
@@ -94,10 +94,7 @@ impl LogInfoWindow {
                     egui::ScrollArea::vertical()
                         .auto_shrink(false)
                         .show(ui, |ui| {
-                            for rpt in self.report.iter() {
-                                //ui.label(rpt);
-                                ui.text_edit_singleline(&mut rpt.as_str());
-                            }
+                            ui.add(egui::TextEdit::multiline(&mut self.report.as_str()).desired_width(f32::INFINITY));
                         });
                 });
 
