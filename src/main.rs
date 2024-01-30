@@ -824,12 +824,9 @@ impl eframe::App for MyApp {
                                                     )
                                                     .clicked()
                                                 {
-                                                    self.info_vp.enable(
+                                                    self.info_vp.open(
                                                         fail.0.to_string(),
-                                                        self.log_master
-                                                            .read()
-                                                            .unwrap()
-                                                            .get_report_for_DMC(&fail.0),
+                                                        self.log_master.clone(),
                                                     );
                                                 }
                                             });
@@ -1102,12 +1099,9 @@ impl eframe::App for MyApp {
                                             ui.horizontal(|ui| {
                                                 for (r, _, DMC) in chunk {
                                                     if draw_result_box(ui, r).clicked() {
-                                                        self.info_vp.enable(
+                                                        self.info_vp.open(
                                                             DMC.clone(),
-                                                            self.log_master
-                                                                .read()
-                                                                .unwrap()
-                                                                .get_report_for_DMC(DMC),
+                                                            self.log_master.clone()
                                                         )
                                                     }
                                                 }
@@ -1157,12 +1151,9 @@ impl eframe::App for MyApp {
                                                     )
                                                     .clicked()
                                                 {
-                                                    self.info_vp.enable(
+                                                    self.info_vp.open(
                                                         mb.0.clone(),
-                                                        self.log_master
-                                                            .read()
-                                                            .unwrap()
-                                                            .get_report_for_DMC(&mb.0),
+                                                        self.log_master.clone()
                                                     );
                                                 }
                                             }
@@ -1179,12 +1170,9 @@ impl eframe::App for MyApp {
                                             ui.horizontal(|ui| {
                                                 for r in sb.panels.iter() {
                                                     if draw_result_box(ui, r).clicked() {
-                                                        self.info_vp.enable(
+                                                        self.info_vp.open(
                                                             mb.0.clone(),
-                                                            self.log_master
-                                                                .read()
-                                                                .unwrap()
-                                                                .get_report_for_DMC(&mb.0),
+                                                            self.log_master.clone()
                                                         );
                                                     }
                                                 }
@@ -1277,7 +1265,7 @@ impl eframe::App for MyApp {
         });
 
         if self.info_vp.enabled() {
-            self.info_vp.update(ctx);
+            self.info_vp.update(ctx, self.log_master.clone());
         }
     }
 }

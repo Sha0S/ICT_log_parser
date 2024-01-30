@@ -643,14 +643,14 @@ impl Board {
     }
 
     fn get_reports(&self) -> Vec<String> {
-        let mut ret: Vec<String> = vec![format!("{} - {}\n", self.index, self.DMC)];
+        let mut ret: Vec<String> = vec![format!("{} - {}", self.index, self.DMC)];
 
         for (i, log) in self.logs.iter().enumerate() {
             if log.result == BResult::Pass {
-                ret.push(format!("Log #{i}: Pass\n"));
+                ret.push(format!("Log #{i}: Pass"));
 
             } else {
-                ret.push(format!("Log #{i}: Fail\n"));
+                ret.push(format!("Log #{i}: Fail"));
 
                 if log.report.is_empty() {
                     ret.push(String::from("No report field found in log!"));
@@ -662,7 +662,7 @@ impl Board {
                 }
             }
 
-            ret.push("\n".to_string());
+            ret.push("".to_string());
         }
 
         ret
@@ -1565,11 +1565,11 @@ impl LogFileHandler {
         None
     }
 
-    pub fn get_report_for_DMC(&self, DMC: &str) -> Vec<String> {
+    pub fn get_report_for_DMC(&self, DMC: &str) -> Option<Vec<String>> {
         if let Some(board) = self.get_board_w_DMC(DMC) {
-            return board.get_reports();
+            return Some(board.get_reports());
         }
 
-        Vec::new()
+        None
     }
 }
