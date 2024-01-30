@@ -61,7 +61,7 @@ impl LogInfoWindow {
 
     pub fn update(&mut self, ctx: &egui::Context, lfh: Arc<RwLock<LogFileHandler>>) {
         ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of(self.DMC.clone()),
+            egui::ViewportId::from_hash_of("LIWindow"),
             egui::ViewportBuilder::default()
                 .with_title(self.DMC.clone())
                 .with_inner_size([400.0, 400.0]),
@@ -94,7 +94,10 @@ impl LogInfoWindow {
                     egui::ScrollArea::vertical()
                         .auto_shrink(false)
                         .show(ui, |ui| {
-                            ui.add(egui::TextEdit::multiline(&mut self.report.as_str()).desired_width(f32::INFINITY));
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.report.as_str())
+                                    .desired_width(f32::INFINITY),
+                            );
                         });
                 });
 
