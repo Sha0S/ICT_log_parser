@@ -1035,14 +1035,13 @@ impl eframe::App for MyApp {
                                 "".to_owned()
                             }
                         })
+                        .height(ui.available_height()-20.0)
                         .show(ui, |plot_ui| {
                             plot_ui.points(points);
                             plot_ui.line(upper_limit);
                             plot_ui.line(nominal);
                             plot_ui.line(lower_limit);
                         });
-
-                    ui.add_space(20.0);
                 }
             }
 
