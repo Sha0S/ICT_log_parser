@@ -735,6 +735,7 @@ impl eframe::App for MyApp {
             // Failure list:
             if !self.failures.is_empty() {
                 ui.vertical(|ui| {
+                    ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                     ui.separator();
 
                     TableBuilder::new(ui)
@@ -808,11 +809,13 @@ impl eframe::App for MyApp {
                 egui::TopBottomPanel::bottom("failed panels")
                     .resizable(true)
                     .show(ctx, |ui| {
+                        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+
                         ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                             TableBuilder::new(ui)
                                 .striped(true)
-                                .column(Column::initial(150.0).resizable(true))
-                                .column(Column::initial(100.0).resizable(true))
+                                .column(Column::auto())
+                                .column(Column::auto())
                                 .body(|mut body| {
                                     for fail in &x.failed {
                                         body.row(20.0, |mut row| {
@@ -876,6 +879,7 @@ impl eframe::App for MyApp {
 
         // Central panel
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             ui.set_enabled(!self.loading);
 
             // Top "menu bar"
@@ -1126,7 +1130,7 @@ impl eframe::App for MyApp {
                         .column(Column::initial(40.0).resizable(true))
                         .column(Column::initial(200.0).resizable(true))
                         .column(Column::initial(130.0).resizable(true))
-                        .column(Column::auto().resizable(true))
+                        .column(Column::remainder())
                         .body(|mut body| {
                             for (i, mb) in self.multiboard_results.iter().enumerate() {
                                 let color_mb = mb.1.last().unwrap().result.into_dark_color();

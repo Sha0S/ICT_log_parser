@@ -76,6 +76,8 @@ impl LogInfoWindow {
                 );
 
                 egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+
                     ui.horizontal(|ui| {
                         ui.monospace("DMC:");
 
