@@ -376,7 +376,7 @@ impl LogFile {
 
                     tests.push(test);
 
-                    _ = lines.next();
+                    //_ = lines.next();
                 }
                 "{@BS-CON" => {
                     let test = Test {
@@ -399,15 +399,25 @@ impl LogFile {
                     let mut dt_counter = 1;
                     let mut bs_counter = 1;
 
-                    iline = lines.next();
+                    // PFT: Testjet and Digital measurements have a closing bracet too!
+                    // We don't want to prematurely close the BLOCK, so we need to ignore these.
+                    // Except these won't show up, if they fail, as the RPT block will folow them instead.
+                    let mut potential_fake_terminator = false;
 
-                    //if name.ends_with("testjet") { continue; }
+                    iline = lines.next();
 
                     while iline.is_some() {
                         line = iline.unwrap().trim();
                         if line == "}" {
-                            break;
+                            if potential_fake_terminator {
+                                iline = lines.next();
+                                potential_fake_terminator = false;
+                                continue;
+                            } else {
+                                break;
+                            }
                         }
+                        potential_fake_terminator = false;
 
                         let mut part = line.split("{@");
                         parts = part.nth(1).unwrap().split('|');
@@ -451,7 +461,7 @@ impl LogFile {
 
                                 tests.push(test);
 
-                                _ = lines.next();
+                                potential_fake_terminator = true;
                             }
                             TType::Digital => {
                                 let tresult2 = parts.next().unwrap().into();
@@ -472,7 +482,7 @@ impl LogFile {
 
                                 tests.push(test);
 
-                                _ = lines.next();
+                                potential_fake_terminator = true;
                             }
                             TType::BoundaryS => {
                                 let name2: String;
