@@ -1329,16 +1329,10 @@ impl LogFileHandler {
 
         resultlist.sort_by_key(|k| k.0);
 
-        // let the time of resultlist[0] be t0, and each afterwards be tn-t0 in seconds.
-        if let Some(&(t0, _, _, _)) = resultlist.first() {
-            let nt0 = NaiveDateTime::parse_from_str(&format!("{t0}"), "%y%m%d%H%M%S").unwrap();
-
-            for res in resultlist.iter_mut() {
-                let ntn =
-                    NaiveDateTime::parse_from_str(&format!("{}", res.0), "%y%m%d%H%M%S").unwrap();
-                //println!("{:?} - {:?}", ntn, nt0);
-                res.0 = (ntn - nt0).num_seconds() as u64;
-            }
+        for res in resultlist.iter_mut() {
+            res.0 = NaiveDateTime::parse_from_str(&format!("{}", res.0), "%y%m%d%H%M%S")
+                .unwrap()
+                .timestamp() as u64;
         }
 
         (self.testlist[testid].1, resultlist)

@@ -4,7 +4,7 @@
 use eframe::egui;
 use egui::{Color32, ImageButton, Layout, ProgressBar, RichText, Sense, Stroke, Vec2};
 use egui_extras::{Column, TableBuilder};
-use egui_plot::{uniform_grid_spacer, Bar, BarChart, Line, Plot, PlotPoints};
+use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
 
 use chrono::*;
 
@@ -1010,11 +1010,7 @@ impl eframe::App for MyApp {
                     let lower_limit = Line::new(lower_limit_p).color(Color32::RED).name("MIN");
 
                     Plot::new("Test results")
-                        //.auto_bounds_x()
-                        //.auto_bounds_y()
-                        .custom_x_axes(vec![egui_plot::AxisHints::default()
-                            .formatter(x_formatter)
-                            .label("time")])
+                        .custom_x_axes(vec![egui_plot::AxisHints::default().formatter(x_formatter)])
                         .custom_y_axes(vec![egui_plot::AxisHints::default()
                             .formatter(y_formatter)
                             .label(match self.selected_test_results.0 {
@@ -1039,23 +1035,14 @@ impl eframe::App for MyApp {
                                 "".to_owned()
                             }
                         })
-                        .x_grid_spacer(uniform_grid_spacer(|x| {
-                            if x.base_step_size < 150.0 {
-                                [3600.0 * 4.0, 3600.0, 900.0]
-                            } else if x.base_step_size < 600.0 {
-                                [3600.0 * 8.0, 3600.0 * 4.0, 3600.0]
-                            } else if x.base_step_size < 2400.0 {
-                                [3600.0 * 32.0, 3600.0 * 16.0, 3600.0 * 4.0]
-                            } else {
-                                [3600.0 * 24.0 * 30.0, 3600.0 * 24.0 * 7.0, 3600.0 * 24.0]
-                            }
-                        }))
                         .show(ui, |plot_ui| {
                             plot_ui.points(points);
                             plot_ui.line(upper_limit);
                             plot_ui.line(nominal);
                             plot_ui.line(lower_limit);
                         });
+
+                    ui.add_space(20.0);
                 }
             }
 
@@ -1288,18 +1275,15 @@ fn y_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> S
 }
 
 fn x_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
-    let h = tick / 3600.0;
-    let m = (tick % 3600.0) / 60.0;
-    let s = tick % 60.0;
-    format!("{h:02.0}:{m:02.0}:{s:02.0}")
+    let t: DateTime<Local> = DateTime::from_timestamp(tick as i64, 0).unwrap().into();
+
+    format!("{}\n{}", t.format("%m-%d"), t.format("%R"))
 }
 
 fn c_formater(point: &egui_plot::PlotPoint, _: &egui_plot::PlotBounds) -> String {
-    let h = point.x / 3600.0;
-    let m = (point.x % 3600.0) / 60.0;
-    let s = point.x % 60.0;
+    let t: DateTime<Local> = DateTime::from_timestamp(point.x as i64, 0).unwrap().into();
 
-    format!("x: {:+1.4E}\t t: {h:02.0}:{m:02.0}:{s:02.0}", point.y)
+    format!("x: {:+1.4E}\t t: {}", point.y, t.format("%F %R"))
 }
 
 fn draw_result_box(ui: &mut egui::Ui, result: &BResult) -> egui::Response {
