@@ -14,6 +14,9 @@ use logfile::*;
 mod log_info_window;
 use log_info_window::*;
 
+mod scan_dir;
+use scan_dir::*;
+
 use std::fs;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
@@ -157,7 +160,7 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default(),
+        viewport: egui::ViewportBuilder::default().with_inner_size(Vec2{x: 830.0, y: 450.0}),
         ..Default::default()
     };
 
@@ -350,6 +353,7 @@ struct MyApp {
     export_settings: ExportSettings,
 
     info_vp: LogInfoWindow,
+    scan_vp: ScanDirWindow,
 }
 
 impl Default for MyApp {
@@ -395,6 +399,7 @@ impl Default for MyApp {
 
             export_settings: ExportSettings::default(),
             info_vp: LogInfoWindow::default(),
+            scan_vp: ScanDirWindow::default(),
         }
     }
 }
@@ -905,6 +910,13 @@ impl eframe::App for MyApp {
                 if ui.button(MESSAGE_P[PLOT_LABEL][self.lang]).clicked() {
                     self.mode = AppMode::Plot;
                 }
+
+                // Right side first:
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Scan").clicked() {
+                        self.scan_vp.enable();
+                    }
+                });
             });
 
             ui.separator();
@@ -1035,7 +1047,7 @@ impl eframe::App for MyApp {
                                 "".to_owned()
                             }
                         })
-                        .height(ui.available_height()-20.0)
+                        .height(ui.available_height() - 20.0)
                         .show(ui, |plot_ui| {
                             plot_ui.points(points);
                             plot_ui.line(upper_limit);
@@ -1263,6 +1275,10 @@ impl eframe::App for MyApp {
 
         if self.info_vp.enabled() {
             self.info_vp.update(ctx, self.log_master.clone());
+        }
+
+        if self.scan_vp.enabled() {
+            self.scan_vp.update(ctx);
         }
     }
 }
