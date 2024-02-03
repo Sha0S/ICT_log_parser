@@ -559,6 +559,8 @@ impl eframe::App for MyApp {
                     } else {
                         if hours_now < 6 {
                             self.date_start = self.date_start.pred_opt().unwrap();
+                        } else {
+                            self.date_end = self.date_end.succ_opt().unwrap();
                         }
                         self.time_start = NaiveTime::from_hms_opt(22, 0, 0).unwrap();
                         self.time_end = NaiveTime::from_hms_opt(5, 59, 59).unwrap();
