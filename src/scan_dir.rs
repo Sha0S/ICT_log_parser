@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use std::{ffi::OsString, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 struct ScannedDir {
     dir: PathBuf,
@@ -11,33 +11,17 @@ pub struct ScanDirWindow {
     // config
     root_dir: PathBuf,
     time_limit: i64,
-    whitelist: Vec<OsString>,
-    blacklist: Vec<OsString>,
 
     // result
     scanned_dirs: Vec<ScannedDir>,
-}
-
-fn load_vec_from_file(path: &str) -> Vec<OsString> {
-    match fs::read_to_string(path) {
-        Ok(file) => file.lines().map(|s| s.into()).collect(),
-        Err(_) => {
-            println!("ERR: cloud not read file: {path}");
-            Vec::new()
-        }
-    }
 }
 
 impl ScanDirWindow {
     pub fn default() -> Self {
         ScanDirWindow {
             enabled: false,
-
             root_dir: PathBuf::from("C:\\Agilent_ICT\\boards\\"),
             time_limit: 7,
-            whitelist: load_vec_from_file(".\\res\\whitelist"),
-            blacklist: load_vec_from_file(".\\res\\blacklist"),
-
             scanned_dirs: Vec::new(),
         }
     }
@@ -67,7 +51,6 @@ impl ScanDirWindow {
     fn get_changed_files(
         &self,
         root: &PathBuf,
-        subdir: bool,
     ) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
         let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
 
@@ -75,27 +58,11 @@ impl ScanDirWindow {
             let dir = dir?;
             let path = dir.path();
             if path.is_dir() {
-                if self.whitelist.is_empty() || subdir {
-                    ret.append(&mut self.get_changed_files(&path, true)?);
-                } else {
-                    for check in &self.whitelist {
-                        if path.ends_with(check) {
-                            ret.append(&mut self.get_changed_files(&path, true)?);
-                            break;
-                        }
-                    }
-                }
-            } else {
-                let filename = path.file_name().unwrap();
-                if self.blacklist.iter().any(|x| *x == filename) {
-                    continue;
-                }
-
-                if let Ok(x) = path.metadata() {
-                    let modified: DateTime<Local> = x.modified().unwrap().into();
-                    if Local::now() - modified < chrono::Duration::days(self.time_limit) {
-                        ret.push((path, modified));
-                    }
+                ret.append(&mut self.get_changed_files(&path)?);
+            } else if let Ok(x) = path.metadata() {
+                let modified: DateTime<Local> = x.modified().unwrap().into();
+                if Local::now() - modified < chrono::Duration::days(self.time_limit) {
+                    ret.push((path, modified));
                 }
             }
         }
@@ -121,7 +88,7 @@ impl ScanDirWindow {
 
                         if let Ok(directories) = self.get_board_directories() {
                             for dir in &directories {
-                                match self.get_changed_files(dir, false) {
+                                match self.get_changed_files(dir) {
                                     Ok(files) => {
                                         self.scanned_dirs.push(ScannedDir {
                                             dir: dir.clone(),
@@ -145,17 +112,13 @@ impl ScanDirWindow {
                         .show(ui, |ui| {
                             egui::Grid::new("table").show(ui, |ui| {
                                 for dir in &self.scanned_dirs {
-                                    ui.label(format!("{:?}", dir.dir));
+                                    ui.label(format!("{}", dir.dir.display()));
                                     ui.end_row();
 
                                     for file in &dir.changed_files {
                                         ui.add_space(50.0);
-                                        ui.label(format!("{:?}", file.0));
+                                        ui.label(format!("{}", file.0.display()));
                                         ui.label(format!("{}", file.1.format("%F %R")));
-
-                                        if ui.button("Load").clicked() {
-                                            //Do something
-                                        }
                                         ui.end_row();
                                     }
                                 }
