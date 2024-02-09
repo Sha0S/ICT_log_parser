@@ -6,15 +6,19 @@ use std::{
     thread,
 };
 
-const ROOT_DIR: &str = "C:\\Agilent_ICT\\boards\\";
+const ROOT_DIRS: [&str; 2] = ["C:\\Agilent_ICT\\boards\\", "C:\\Keysight_ICT\\boards\\"];
 fn get_board_directories() -> Result<Vec<PathBuf>, std::io::Error> {
     let mut ret: Vec<PathBuf> = Vec::new();
 
-    for dir in fs::read_dir(ROOT_DIR)? {
-        let dir = dir?;
-        let path = dir.path();
-        if path.is_dir() && path.join("testplan").exists() {
-            ret.push(path);
+    for root in ROOT_DIRS {
+        if let Ok(dirs) = fs::read_dir(root) {
+            for dir in dirs {
+                let dir = dir?;
+                let path = dir.path();
+                if path.is_dir() && path.join("testplan").exists() {
+                    ret.push(path);
+                }
+            }
         }
     }
 
@@ -86,15 +90,15 @@ impl ScanDirWindow {
                 );
 
                 egui::TopBottomPanel::top("Top").show(ctx, |ui| {
-                    ui.horizontal( |ui| {
-                        if ui.button("Scan!").clicked() && ! *self.scanning.read().unwrap() {
+                    ui.horizontal(|ui| {
+                        if ui.button("Scan!").clicked() && !*self.scanning.read().unwrap() {
                             self.scanned_dirs.write().unwrap().clear();
                             *self.scanning.write().unwrap() = true;
-    
+
                             let sd_lock = self.scanned_dirs.clone();
                             let scan_lock = self.scanning.clone();
                             let timelimit = Duration::days(self.time_limit);
-    
+
                             thread::spawn(move || {
                                 if let Ok(directories) = get_board_directories() {
                                     for dir in &directories {
@@ -105,18 +109,20 @@ impl ScanDirWindow {
                                                     changed_files: files,
                                                 });
                                             }
-    
+
                                             Err(err) => {
-                                                println!("Err: could not scan directories! {err:?}");
+                                                println!(
+                                                    "Err: could not scan directories! {err:?}"
+                                                );
                                             }
                                         }
                                     }
                                 }
-    
+
                                 *scan_lock.write().unwrap() = false;
                             });
                         }
-    
+
                         if *self.scanning.read().unwrap() {
                             ui.spinner();
                         }
