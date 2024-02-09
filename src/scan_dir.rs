@@ -1,5 +1,47 @@
-use chrono::{DateTime, Local};
-use std::{fs, path::PathBuf};
+use chrono::{DateTime, Duration, Local};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+    thread,
+};
+
+const ROOT_DIR: &str = "C:\\Agilent_ICT\\boards\\";
+fn get_board_directories() -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut ret: Vec<PathBuf> = Vec::new();
+
+    for dir in fs::read_dir(ROOT_DIR)? {
+        let dir = dir?;
+        let path = dir.path();
+        if path.is_dir() && path.join("testplan").exists() {
+            ret.push(path);
+        }
+    }
+
+    Ok(ret)
+}
+
+fn get_changed_files(
+    root: &PathBuf,
+    time_limit: Duration,
+) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
+    let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
+
+    for dir in fs::read_dir(root)? {
+        let dir = dir?;
+        let path = dir.path();
+        if path.is_dir() {
+            ret.append(&mut get_changed_files(&path, time_limit)?);
+        } else if let Ok(x) = path.metadata() {
+            let modified: DateTime<Local> = x.modified().unwrap().into();
+            if Local::now() - modified < time_limit {
+                ret.push((path, modified));
+            }
+        }
+    }
+
+    Ok(ret)
+}
 
 struct ScannedDir {
     dir: PathBuf,
@@ -7,22 +49,19 @@ struct ScannedDir {
 }
 pub struct ScanDirWindow {
     enabled: bool,
-
-    // config
-    root_dir: PathBuf,
     time_limit: i64,
-
-    // result
-    scanned_dirs: Vec<ScannedDir>,
+    scanning: Arc<RwLock<bool>>,
+    scanned_dirs: Arc<RwLock<Vec<ScannedDir>>>,
 }
 
 impl ScanDirWindow {
     pub fn default() -> Self {
         ScanDirWindow {
             enabled: false,
-            root_dir: PathBuf::from("C:\\Agilent_ICT\\boards\\"),
             time_limit: 7,
-            scanned_dirs: Vec::new(),
+
+            scanning: Arc::new(RwLock::new(false)),
+            scanned_dirs: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -32,42 +71,6 @@ impl ScanDirWindow {
 
     pub fn enabled(&self) -> bool {
         self.enabled
-    }
-
-    fn get_board_directories(&self) -> Result<Vec<PathBuf>, std::io::Error> {
-        let mut ret: Vec<PathBuf> = Vec::new();
-
-        for dir in fs::read_dir(&self.root_dir)? {
-            let dir = dir?;
-            let path = dir.path();
-            if path.is_dir() && path.join("testplan").exists() {
-                ret.push(path);
-            }
-        }
-
-        Ok(ret)
-    }
-
-    fn get_changed_files(
-        &self,
-        root: &PathBuf,
-    ) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
-        let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
-
-        for dir in fs::read_dir(root)? {
-            let dir = dir?;
-            let path = dir.path();
-            if path.is_dir() {
-                ret.append(&mut self.get_changed_files(&path)?);
-            } else if let Ok(x) = path.metadata() {
-                let modified: DateTime<Local> = x.modified().unwrap().into();
-                if Local::now() - modified < chrono::Duration::days(self.time_limit) {
-                    ret.push((path, modified));
-                }
-            }
-        }
-
-        Ok(ret)
     }
 
     pub fn update(&mut self, ctx: &egui::Context) {
@@ -83,26 +86,41 @@ impl ScanDirWindow {
                 );
 
                 egui::TopBottomPanel::top("Top").show(ctx, |ui| {
-                    if ui.button("Scan!").clicked() {
-                        self.scanned_dirs.clear();
-
-                        if let Ok(directories) = self.get_board_directories() {
-                            for dir in &directories {
-                                match self.get_changed_files(dir) {
-                                    Ok(files) => {
-                                        self.scanned_dirs.push(ScannedDir {
-                                            dir: dir.clone(),
-                                            changed_files: files,
-                                        });
-                                    }
-
-                                    Err(err) => {
-                                        println!("Err: could not scan directories! {err:?}");
+                    ui.horizontal( |ui| {
+                        if ui.button("Scan!").clicked() && ! *self.scanning.read().unwrap() {
+                            self.scanned_dirs.write().unwrap().clear();
+                            *self.scanning.write().unwrap() = true;
+    
+                            let sd_lock = self.scanned_dirs.clone();
+                            let scan_lock = self.scanning.clone();
+                            let timelimit = Duration::days(self.time_limit);
+    
+                            thread::spawn(move || {
+                                if let Ok(directories) = get_board_directories() {
+                                    for dir in &directories {
+                                        match get_changed_files(dir, timelimit) {
+                                            Ok(files) => {
+                                                sd_lock.write().unwrap().push(ScannedDir {
+                                                    dir: dir.clone(),
+                                                    changed_files: files,
+                                                });
+                                            }
+    
+                                            Err(err) => {
+                                                println!("Err: could not scan directories! {err:?}");
+                                            }
+                                        }
                                     }
                                 }
-                            }
+    
+                                *scan_lock.write().unwrap() = false;
+                            });
                         }
-                    }
+    
+                        if *self.scanning.read().unwrap() {
+                            ui.spinner();
+                        }
+                    });
                 });
 
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -111,7 +129,7 @@ impl ScanDirWindow {
                         .auto_shrink(false)
                         .show(ui, |ui| {
                             egui::Grid::new("table").show(ui, |ui| {
-                                for dir in &self.scanned_dirs {
+                                for dir in self.scanned_dirs.read().unwrap().iter() {
                                     ui.label(format!("{}", dir.dir.display()));
                                     ui.end_row();
 
