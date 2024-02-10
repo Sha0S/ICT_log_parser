@@ -3,9 +3,9 @@
 
 use eframe::egui;
 use egui::{Color32, ImageButton, Layout, ProgressBar, RichText, Sense, Stroke, Vec2};
+use egui_dropdown::DropDownBox;
 use egui_extras::{Column, TableBuilder};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
-use egui_dropdown::DropDownBox;
 
 use chrono::*;
 
@@ -161,7 +161,7 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(Vec2{x: 830.0, y: 450.0}),
+        viewport: egui::ViewportBuilder::default().with_inner_size(Vec2 { x: 830.0, y: 450.0 }),
         ..Default::default()
     };
 
@@ -928,11 +928,10 @@ impl eframe::App for MyApp {
             if self.mode == AppMode::Plot && !self.loading {
                 let lfh = self.log_master.read().unwrap();
                 let testlist = lfh.get_testlist();
+                let mut reset_plot = false;
                 if !testlist.is_empty() {
-
                     // I will need to replace this latter with something edittable
                     ui.horizontal(|ui| {
-
                         ui.add(DropDownBox::from_iter(
                             testlist.iter().map(|f| &f.0),
                             "test_dropbox",
@@ -945,10 +944,13 @@ impl eframe::App for MyApp {
                         }
 
                         ui.label("Index:");
-                        ui.add(egui::DragValue::new(&mut self.selected_test_index).speed(1.0).clamp_range(0..=20));
-
+                        ui.add(
+                            egui::DragValue::new(&mut self.selected_test_index)
+                                .speed(1.0)
+                                .clamp_range(0..=20),
+                        );
                     });
-                    
+
                     ui.separator();
 
                     if let Some(x) = testlist.iter().position(|p| p.0 == self.selected_test_buf) {
@@ -956,6 +958,7 @@ impl eframe::App for MyApp {
                             self.selected_test = x;
                             println!("INFO: Loading results for test nbr {}!", self.selected_test);
                             self.selected_test_results = lfh.get_stats_for_test(self.selected_test);
+                            reset_plot = true;
                             if self.selected_test_results.1.is_empty() {
                                 println!("\tERR: Loading failed!");
                             } else {
@@ -1050,7 +1053,7 @@ impl eframe::App for MyApp {
 
                     let lower_limit = Line::new(lower_limit_p).color(Color32::RED).name("MIN");
 
-                    Plot::new("Test results")
+                    let mut plot = Plot::new("Test results")
                         .custom_x_axes(vec![egui_plot::AxisHints::new_x().formatter(x_formatter)])
                         .custom_y_axes(vec![egui_plot::AxisHints::new_y()
                             .formatter(y_formatter)
@@ -1076,13 +1079,18 @@ impl eframe::App for MyApp {
                                 "".to_owned()
                             }
                         })
-                        .height(ui.available_height() - 20.0)
-                        .show(ui, |plot_ui| {
-                            plot_ui.points(points);
-                            plot_ui.line(upper_limit);
-                            plot_ui.line(nominal);
-                            plot_ui.line(lower_limit);
-                        });
+                        .height(ui.available_height() - 20.0);
+
+                    if reset_plot {
+                        plot = plot.reset();
+                    }
+
+                    plot.show(ui, |plot_ui| {
+                        plot_ui.points(points);
+                        plot_ui.line(upper_limit);
+                        plot_ui.line(nominal);
+                        plot_ui.line(lower_limit);
+                    });
                 }
             }
 
@@ -1314,12 +1322,22 @@ impl eframe::App for MyApp {
 
 // Formaters for the plot
 
-fn y_formatter(tick: egui_plot::GridMark, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
+fn y_formatter(
+    tick: egui_plot::GridMark,
+    _max_digits: usize,
+    _range: &RangeInclusive<f64>,
+) -> String {
     format!("{:+1.1E}", tick.value)
 }
 
-fn x_formatter(tick: egui_plot::GridMark, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
-    let t: DateTime<Local> = DateTime::from_timestamp(tick.value as i64, 0).unwrap().into();
+fn x_formatter(
+    tick: egui_plot::GridMark,
+    _max_digits: usize,
+    _range: &RangeInclusive<f64>,
+) -> String {
+    let t: DateTime<Local> = DateTime::from_timestamp(tick.value as i64, 0)
+        .unwrap()
+        .into();
 
     format!("{}\n{}", t.format("%m-%d"), t.format("%R"))
 }
