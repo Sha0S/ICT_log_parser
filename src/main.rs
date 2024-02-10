@@ -348,6 +348,7 @@ struct MyApp {
 
     selected_test: usize,
     selected_test_tmp: usize,
+    selected_test_index: usize,
     selected_test_results: (TType, Vec<(u64, usize, TResult, TLimit)>),
 
     export_settings: ExportSettings,
@@ -395,6 +396,7 @@ impl Default for MyApp {
 
             selected_test: 0,
             selected_test_tmp: 0,
+            selected_test_index: 0,
             selected_test_results: (TType::Unknown, Vec::new()),
 
             export_settings: ExportSettings::default(),
@@ -926,8 +928,10 @@ impl eframe::App for MyApp {
                 let lfh = self.log_master.read().unwrap();
                 let testlist = lfh.get_testlist();
                 if !testlist.is_empty() {
+
                     // I will need to replace this latter with something edittable
-                    egui::ComboBox::from_label("")
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_label("")
                         .selected_text(testlist[self.selected_test].0.to_owned())
                         .show_ui(ui, |ui| {
                             for (i, t) in testlist.iter().enumerate() {
@@ -935,6 +939,15 @@ impl eframe::App for MyApp {
                             }
                         });
 
+                        if ui.button("Reload").clicked() {
+                            self.selected_test_results.1.clear();
+                        }
+
+                        ui.label("Index:");
+                        ui.add(egui::DragValue::new(&mut self.selected_test_index).speed(1.0).clamp_range(0..=20));
+
+                    });
+                    
                     ui.separator();
 
                     if self.selected_test != self.selected_test_tmp
@@ -958,6 +971,10 @@ impl eframe::App for MyApp {
                         .1
                         .iter()
                         .filter_map(|r| {
+                            if self.selected_test_index != 0 && self.selected_test_index != r.1 {
+                                return None;
+                            }
+
                             if r.2 .0 == BResult::Unknown {
                                 return None;
                             }
@@ -972,6 +989,10 @@ impl eframe::App for MyApp {
                         .1
                         .iter()
                         .filter_map(|r| {
+                            if self.selected_test_index != 0 && self.selected_test_index != r.1 {
+                                return None;
+                            }
+
                             if let TLimit::Lim3(_, x, _) = r.3 {
                                 Some([r.0 as f64, x as f64])
                             } else if let TLimit::Lim2(x, _) = r.3 {
@@ -987,6 +1008,10 @@ impl eframe::App for MyApp {
                         .1
                         .iter()
                         .filter_map(|r| {
+                            if self.selected_test_index != 0 && self.selected_test_index != r.1 {
+                                return None;
+                            }
+
                             if let TLimit::Lim3(x, _, _) = r.3 {
                                 Some([r.0 as f64, x as f64])
                             } else {
@@ -1000,6 +1025,10 @@ impl eframe::App for MyApp {
                         .1
                         .iter()
                         .filter_map(|r| {
+                            if self.selected_test_index != 0 && self.selected_test_index != r.1 {
+                                return None;
+                            }
+                            
                             if let TLimit::Lim3(_, _, x) = r.3 {
                                 Some([r.0 as f64, x as f64])
                             } else if let TLimit::Lim2(_, x) = r.3 {
