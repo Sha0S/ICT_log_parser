@@ -6,13 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eframe = "0.25.0"
-egui = { version = "0.25.0" }
-egui_extras = { version = "0.25.0", features = ["all_loaders", "datepicker"] }
+eframe = "0.26.0"
+egui = { version = "0.26.0" }
+egui_extras = { version = "0.26.0", features = ["all_loaders", "datepicker"] }
+egui_plot = "0.26.0"
+egui-dropdown = "0.7.0"
 image = { version = "0.24", features = ["png"] }
 env_logger = "0.11.0"
 log = "0.4.20"
 rfd = "0.13.0"
 chrono = "0.4.31"
-egui_plot = "0.25.0"
 umya-spreadsheet = "1.1.1"
+

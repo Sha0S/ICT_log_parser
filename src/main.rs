@@ -1028,7 +1028,7 @@ impl eframe::App for MyApp {
                             if self.selected_test_index != 0 && self.selected_test_index != r.1 {
                                 return None;
                             }
-                            
+
                             if let TLimit::Lim3(_, _, x) = r.3 {
                                 Some([r.0 as f64, x as f64])
                             } else if let TLimit::Lim2(_, x) = r.3 {
@@ -1051,8 +1051,8 @@ impl eframe::App for MyApp {
                     let lower_limit = Line::new(lower_limit_p).color(Color32::RED).name("MIN");
 
                     Plot::new("Test results")
-                        .custom_x_axes(vec![egui_plot::AxisHints::default().formatter(x_formatter)])
-                        .custom_y_axes(vec![egui_plot::AxisHints::default()
+                        .custom_x_axes(vec![egui_plot::AxisHints::new_x().formatter(x_formatter)])
+                        .custom_y_axes(vec![egui_plot::AxisHints::new_y()
                             .formatter(y_formatter)
                             .label(match self.selected_test_results.0 {
                                 TType::Capacitor => "F",
@@ -1314,12 +1314,12 @@ impl eframe::App for MyApp {
 
 // Formaters for the plot
 
-fn y_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
-    format!("{tick:+1.1E}")
+fn y_formatter(tick: egui_plot::GridMark, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
+    format!("{:+1.1E}", tick.value)
 }
 
-fn x_formatter(tick: f64, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
-    let t: DateTime<Local> = DateTime::from_timestamp(tick as i64, 0).unwrap().into();
+fn x_formatter(tick: egui_plot::GridMark, _max_digits: usize, _range: &RangeInclusive<f64>) -> String {
+    let t: DateTime<Local> = DateTime::from_timestamp(tick.value as i64, 0).unwrap().into();
 
     format!("{}\n{}", t.format("%m-%d"), t.format("%R"))
 }
