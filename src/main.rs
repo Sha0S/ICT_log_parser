@@ -5,6 +5,7 @@ use eframe::egui;
 use egui::{Color32, ImageButton, Layout, ProgressBar, RichText, Sense, Stroke, Vec2};
 use egui_extras::{Column, TableBuilder};
 use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
+use egui_dropdown::DropDownBox;
 
 use chrono::*;
 
@@ -347,7 +348,7 @@ struct MyApp {
     multiboard_results: Vec<MbStats>,
 
     selected_test: usize,
-    selected_test_tmp: usize,
+    selected_test_buf: String,
     selected_test_index: usize,
     selected_test_results: (TType, Vec<(u64, usize, TResult, TLimit)>),
 
@@ -395,7 +396,7 @@ impl Default for MyApp {
             multiboard_results: Vec::new(),
 
             selected_test: 0,
-            selected_test_tmp: 0,
+            selected_test_buf: String::new(),
             selected_test_index: 0,
             selected_test_results: (TType::Unknown, Vec::new()),
 
@@ -771,7 +772,7 @@ impl eframe::App for MyApp {
                                             )
                                             .clicked()
                                         {
-                                            self.selected_test = fail.test_id;
+                                            self.selected_test_buf = fail.name.clone();
                                             self.mode = AppMode::Plot;
                                         }
                                     });
@@ -931,13 +932,13 @@ impl eframe::App for MyApp {
 
                     // I will need to replace this latter with something edittable
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_label("")
-                        .selected_text(testlist[self.selected_test].0.to_owned())
-                        .show_ui(ui, |ui| {
-                            for (i, t) in testlist.iter().enumerate() {
-                                ui.selectable_value(&mut self.selected_test, i, t.0.to_owned());
-                            }
-                        });
+
+                        ui.add(DropDownBox::from_iter(
+                            testlist.iter().map(|f| &f.0),
+                            "test_dropbox",
+                            &mut self.selected_test_buf,
+                            |ui, text| ui.selectable_label(false, text),
+                        ));
 
                         if ui.button("Reload").clicked() {
                             self.selected_test_results.1.clear();
@@ -950,17 +951,16 @@ impl eframe::App for MyApp {
                     
                     ui.separator();
 
-                    if self.selected_test != self.selected_test_tmp
-                        || self.selected_test_results.1.is_empty()
-                    {
-                        println!("INFO: Loading results for test nbr {}!", self.selected_test);
-                        self.selected_test_results = lfh.get_stats_for_test(self.selected_test);
-                        if self.selected_test_results.1.is_empty() {
-                            println!("\tERR: Loading failed!");
-                            self.selected_test = self.selected_test_tmp;
-                        } else {
-                            println!("\tINFO: Loading succefull!");
-                            self.selected_test_tmp = self.selected_test;
+                    if let Some(x) = testlist.iter().position(|p| p.0 == self.selected_test_buf) {
+                        if x != self.selected_test || self.selected_test_results.1.is_empty() {
+                            self.selected_test = x;
+                            println!("INFO: Loading results for test nbr {}!", self.selected_test);
+                            self.selected_test_results = lfh.get_stats_for_test(self.selected_test);
+                            if self.selected_test_results.1.is_empty() {
+                                println!("\tERR: Loading failed!");
+                            } else {
+                                println!("\tINFO: Loading succefull!");
+                            }
                         }
                     }
 
