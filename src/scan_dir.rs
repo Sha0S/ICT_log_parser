@@ -126,6 +126,12 @@ impl ScanDirWindow {
                         if *self.scanning.read().unwrap() {
                             ui.spinner();
                         }
+
+                        ui.label("Days:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.time_limit)
+                                .speed(1.0)
+                        );
                     });
                 });
 
