@@ -311,7 +311,7 @@ impl LogFile {
         //println!("\t\tINFO: Initailization done.");
 
         while iline.is_some() {
-            let mut line = iline.unwrap().trim();
+            let mut line = iline.unwrap().trim().trim_end_matches('}');
             if line == "}}" || line == "}" || line.is_empty() {
                 iline = lines.next();
                 continue;
@@ -418,6 +418,7 @@ impl LogFile {
                             }
                         }
                         potential_fake_terminator = false;
+                        line = line.trim_end_matches('}');
 
                         let mut part = line.split("{@");
                         parts = part.nth(1).unwrap().split('|');
@@ -514,7 +515,7 @@ impl LogFile {
                                 let limits: TLimit;
                                 match part.next() {
                                     Some(x) => {
-                                        parts = x.strip_suffix("}}").unwrap().split('|');
+                                        parts = x.trim_end_matches('}').split('|');
                                         match parts.next().unwrap() {
                                             "LIM2" => {
                                                 limits = TLimit::Lim2(
