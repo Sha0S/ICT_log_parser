@@ -88,20 +88,37 @@ fn get_logs_in_path_t(
     Ok(ret)
 }
 
+fn move_file_to_subdir(base_dir: &Path, subdir_name: String ,file: &Path) -> std::io::Result<()> {
+    let new_dir = base_dir.join(subdir_name);
+    if !new_dir.exists() {
+        fs::create_dir(&new_dir)?;
+    }
+    let final_path = new_dir.join(file.file_name().unwrap());
+    println!("Moving {} to {}", file.display(), final_path.display());
+
+    fs::rename(file, final_path)?;
+
+    Ok(())
+}
+
 // For AutoUpdater. Grabs files after time 't', but it will not scan subdirectories
 type PathAndTime = (PathBuf, DateTime<Local>);
 
-fn get_logs_after_t(path: &Path, t: DateTime<Local>) -> Result<Vec<PathAndTime>, std::io::Error> {
+fn get_logs_after_t(base_path: &Path, t: DateTime<Local>) -> Result<Vec<PathAndTime>, std::io::Error> {
     let mut ret: Vec<PathAndTime> = Vec::new();
+    let now = Local::now();
 
-    for file in fs::read_dir(path)? {
+    for file in fs::read_dir(base_path)? {
         let file = file?;
         let path = file.path();
-        if path.is_file() {
+        if path.is_file() && path.extension().is_none() {
             if let Ok(x) = path.metadata() {
                 let ct: DateTime<Local> = x.modified().unwrap().into();
                 if ct > t {
                     ret.push((path.to_path_buf(), ct));
+                } else if now - ct > Duration::try_hours(4).unwrap() {
+                    // if the log is older than 4 hours, then move it to a subdir  
+                    move_file_to_subdir(base_path, format!("{}", ct.format("%Y_%m_%d")) ,&path)?;
                 }
             }
         }
