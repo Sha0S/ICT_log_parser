@@ -28,7 +28,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 include!("locals.rs");
 
 /*
-Currently in the _t functions it checks if the last modification to the files is between the limits.
+Currently in the _t functions it checks if the last modification to the files is between the limits. 
 This wasn't the original behaviour, but it should be fine? It is also really fast.
 */
 
@@ -271,9 +271,9 @@ impl AutoUpdate {
             // Idealy we would get last-log from the last manual load.
             // That would need the re-write of the fn.
             let start = if let Some(x) = self.last_log {
-                x - Duration::seconds(5)
+                x - Duration::try_seconds(5).unwrap()
             } else {
-                self.last_scan_time.unwrap() - Duration::minutes(5)
+                self.last_scan_time.unwrap() - Duration::try_minutes(5).unwrap()
             };
 
             thread::spawn(move || {

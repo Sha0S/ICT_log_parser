@@ -1333,7 +1333,7 @@ impl LogFileHandler {
         for res in resultlist.iter_mut() {
             res.0 = NaiveDateTime::parse_from_str(&format!("{}", res.0), "%y%m%d%H%M%S")
                 .unwrap()
-                .timestamp() as u64;
+                .and_utc().timestamp() as u64;
         }
 
         (self.testlist[testid].1, resultlist)

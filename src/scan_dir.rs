@@ -97,7 +97,7 @@ impl ScanDirWindow {
 
                             let sd_lock = self.scanned_dirs.clone();
                             let scan_lock = self.scanning.clone();
-                            let timelimit = Duration::days(self.time_limit);
+                            let timelimit = Duration::try_days(self.time_limit).unwrap();
 
                             thread::spawn(move || {
                                 if let Ok(directories) = get_board_directories() {
