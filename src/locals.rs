@@ -51,8 +51,9 @@ const EXPORT_MANUAL_EX: usize = 9;
 const SAVE: usize = 10;
 const LIMIT_W:  usize = 11;
 const LIMIT_W2:  usize = 12;
+const EXPORT_FINAL_ONLY: usize = 13;
 
-const MESSAGE_E: [[&str;2];13] = [
+const MESSAGE_E: [[&str;2];14] = [
     ["💾 Export",                  "💾 Export"],
     ["Beállítások:",            "Settings:"],
     ["Vertikális elrendezés (1 sor = 1 log/pcb)",   "Vertical orientation (1 row = 1 log/pcb)"],
@@ -66,7 +67,8 @@ const MESSAGE_E: [[&str;2];13] = [
                                 "Separate tests with a space. Example: \"c613 r412 v605%ON\""],
     ["Mentés",                  "Save"],
     ["Figyelmeztetés: teszt",                                   "Warning: test"],
-    ["limitje változott! Ez a táblázatban nem lesz látható!",   "has limit changes! This won't be visile in the spreadsheet!"]
+    ["limitje változott! Ez a táblázatban nem lesz látható!",   "has limit changes! This won't be visile in the spreadsheet!"],
+    ["Csak a végső logok exportálása",   "Export only the final logs"],
 ];
 
 // HOURLY + MULTIBOARDS:

@@ -1259,6 +1259,10 @@ impl eframe::App for MyApp {
                     &mut self.export_settings.only_failed_panels,
                     MESSAGE_E[EXPORT_NOK_ONLY][self.lang],
                 );
+                ui.checkbox(
+                    &mut self.export_settings.only_final_logs,
+                    MESSAGE_E[EXPORT_FINAL_ONLY][self.lang],
+                );
                 ui.horizontal(|ui| {
                     ui.monospace(MESSAGE_E[EXPORT_MODE][self.lang]);
                     ui.selectable_value(

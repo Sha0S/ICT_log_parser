@@ -76,6 +76,7 @@ pub enum ExportMode {
 pub struct ExportSettings {
     pub vertical: bool,
     pub only_failed_panels: bool,
+    pub only_final_logs: bool,
     pub mode: ExportMode,
     pub list: String,
 }
@@ -85,6 +86,7 @@ impl ExportSettings {
         Self {
             vertical: false,
             only_failed_panels: false,
+            only_final_logs: false,
             mode: ExportMode::All,
             list: String::new(),
         }
@@ -684,9 +686,19 @@ impl Board {
         sheet: &mut Worksheet,
         mut c: u32,
         only_failure: bool,
+        only_final: bool,
         export_list: &[usize],
     ) -> u32 {
+        if self.logs.is_empty() {
+            return c;
+        }
+
         if only_failure && self.all_ok() {
+            return c;
+        }
+
+        if only_final && only_failure && self.logs.last().is_some_and(|x| x.result == BResult::Pass)
+        {
             return c;
         }
 
@@ -696,7 +708,15 @@ impl Board {
             .get_cell_mut((c, 2))
             .set_value_number(self.index as u32);
 
-        for l in &self.logs {
+        let log_slice = {
+            if only_final {
+                &self.logs[self.logs.len() - 1..]
+            } else {
+                &self.logs[..]
+            }
+        };
+
+        for l in log_slice {
             if only_failure && l.result == BResult::Pass {
                 continue;
             }
@@ -731,17 +751,34 @@ impl Board {
         sheet: &mut Worksheet,
         mut l: u32,
         only_failure: bool,
+        only_final: bool,
         export_list: &[usize],
     ) -> u32 {
+        if self.logs.is_empty() {
+            return l;
+        }
+
         if only_failure && self.all_ok() {
+            return l;
+        }
+
+        if only_final && only_failure && self.logs.last().is_some_and(|x| x.result == BResult::Pass)
+        {
             return l;
         }
 
         // Board values (DMC+index) only get printed once
         sheet.get_cell_mut((1, l)).set_value(self.DMC.clone());
-        //sheet.get_cell_mut((c, 2)).set_value_number(self.index as u32);
 
-        for log in &self.logs {
+        let log_slice = {
+            if only_final {
+                &self.logs[self.logs.len() - 1..]
+            } else {
+                &self.logs[..]
+            }
+        };
+
+        for log in log_slice {
             if only_failure && log.result == BResult::Pass {
                 continue;
             }
@@ -1333,7 +1370,8 @@ impl LogFileHandler {
         for res in resultlist.iter_mut() {
             res.0 = NaiveDateTime::parse_from_str(&format!("{}", res.0), "%y%m%d%H%M%S")
                 .unwrap()
-                .and_utc().timestamp() as u64;
+                .and_utc()
+                .timestamp() as u64;
         }
 
         (self.testlist[testid].1, resultlist)
@@ -1496,7 +1534,13 @@ impl LogFileHandler {
             let mut l: u32 = 4;
             for mb in &self.multiboards {
                 for b in &mb.boards {
-                    l = b.export_to_line(sheet, l, settings.only_failed_panels, &export_list);
+                    l = b.export_to_line(
+                        sheet,
+                        l,
+                        settings.only_failed_panels,
+                        settings.only_final_logs,
+                        &export_list,
+                    );
                 }
             }
         } else {
@@ -1549,7 +1593,13 @@ impl LogFileHandler {
             let mut c: u32 = 6;
             for mb in &self.multiboards {
                 for b in &mb.boards {
-                    c = b.export_to_col(sheet, c, settings.only_failed_panels, &export_list);
+                    c = b.export_to_col(
+                        sheet,
+                        c,
+                        settings.only_failed_panels,
+                        settings.only_final_logs,
+                        &export_list,
+                    );
                 }
             }
         }
