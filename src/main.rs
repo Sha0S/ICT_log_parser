@@ -516,7 +516,7 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.request_repaint_after(std::time::Duration::from_secs(30));
+        ctx.request_repaint_after(std::time::Duration::from_secs(5));
 
         egui::SidePanel::left("Settings_panel").show(ctx, |ui| {
             ui.set_min_width(270.0);
