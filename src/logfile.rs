@@ -953,11 +953,21 @@ impl MultiBoard {
         &self.results
     }
 
-    fn get_failures(&self) -> Vec<(usize, usize, String, u64)> {
+    fn get_failures(&self, setting: FlSettings) -> Vec<(usize, usize, String, u64)> {
         let mut failures: Vec<(usize, usize, String, u64)> = Vec::new(); // (test number, board index, DMC, time)
 
         for b in &self.boards {
-            for l in &b.logs {
+            if b.logs.is_empty() {
+                continue;
+            }
+
+            let logs = match setting {
+                FlSettings::All => &b.logs,
+                FlSettings::AfterRetest => &b.logs[b.logs.len() - 1..],
+                FlSettings::FirstPass => &b.logs[..1],
+            };
+
+            for l in logs {
                 if l.result == BResult::Pass {
                     continue;
                 }
@@ -1022,6 +1032,13 @@ pub struct LogFileHandler {
 
 pub type HourlyStats = (u64, usize, usize, Vec<(BResult, u64, String)>); // (time, OK, NOK, Vec<Results>)
 pub type MbStats = (String, Vec<MbResult>); // (DMC, Vec<(time, Multiboard result, Vec<Board results>)>)
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum FlSettings {
+    FirstPass,
+    All,
+    AfterRetest,
+}
 
 impl LogFileHandler {
     pub fn new() -> Self {
@@ -1250,11 +1267,11 @@ impl LogFileHandler {
         &self.testlist
     }
 
-    pub fn get_failures(&self) -> Vec<FailureList> {
+    pub fn get_failures(&self, setting: FlSettings) -> Vec<FailureList> {
         let mut failure_list: Vec<FailureList> = Vec::new();
 
         for mb in &self.multiboards {
-            'failfor: for failure in mb.get_failures() {
+            'failfor: for failure in mb.get_failures(setting) {
                 // Check if already present
                 for fl in &mut failure_list {
                     if fl.test_id == failure.0 {
@@ -1460,7 +1477,7 @@ impl LogFileHandler {
                 ret = (0..self.testlist.len()).collect();
             }
             ExportMode::FailuresOnly => {
-                for id in self.get_failures() {
+                for id in self.get_failures(FlSettings::All) {
                     ret.push(id.test_id);
                 }
             }

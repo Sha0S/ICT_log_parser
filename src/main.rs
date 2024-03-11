@@ -28,7 +28,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 include!("locals.rs");
 
 /*
-Currently in the _t functions it checks if the last modification to the files is between the limits. 
+Currently in the _t functions it checks if the last modification to the files is between the limits.
 This wasn't the original behaviour, but it should be fine? It is also really fast.
 */
 
@@ -88,7 +88,7 @@ fn get_logs_in_path_t(
     Ok(ret)
 }
 
-fn move_file_to_subdir(base_dir: &Path, subdir_name: String ,file: &Path) -> std::io::Result<()> {
+fn move_file_to_subdir(base_dir: &Path, subdir_name: String, file: &Path) -> std::io::Result<()> {
     let new_dir = base_dir.join(subdir_name);
     if !new_dir.exists() {
         fs::create_dir(&new_dir)?;
@@ -104,7 +104,10 @@ fn move_file_to_subdir(base_dir: &Path, subdir_name: String ,file: &Path) -> std
 // For AutoUpdater. Grabs files after time 't', but it will not scan subdirectories
 type PathAndTime = (PathBuf, DateTime<Local>);
 
-fn get_logs_after_t(base_path: &Path, t: DateTime<Local>) -> Result<Vec<PathAndTime>, std::io::Error> {
+fn get_logs_after_t(
+    base_path: &Path,
+    t: DateTime<Local>,
+) -> Result<Vec<PathAndTime>, std::io::Error> {
     let mut ret: Vec<PathAndTime> = Vec::new();
     let now = Local::now();
 
@@ -117,8 +120,8 @@ fn get_logs_after_t(base_path: &Path, t: DateTime<Local>) -> Result<Vec<PathAndT
                 if ct > t {
                     ret.push((path.to_path_buf(), ct));
                 } else if now - ct > Duration::try_hours(4).unwrap() {
-                    // if the log is older than 4 hours, then move it to a subdir  
-                    move_file_to_subdir(base_path, format!("{}", ct.format("%Y_%m_%d")) ,&path)?;
+                    // if the log is older than 4 hours, then move it to a subdir
+                    move_file_to_subdir(base_path, format!("{}", ct.format("%Y_%m_%d")), &path)?;
                 }
             }
         }
@@ -356,6 +359,7 @@ struct MyApp {
     yield_mode: YieldMode,
     yields: [Yield; 3],
     mb_yields: [Yield; 3],
+    fl_setting: FlSettings,
     failures: Vec<FailureList>,
     limitchanges: Option<Vec<(usize, String)>>,
 
@@ -405,6 +409,7 @@ impl Default for MyApp {
             yield_mode: YieldMode::SingleBoard,
             yields: [Yield(0, 0), Yield(0, 0), Yield(0, 0)],
             mb_yields: [Yield(0, 0), Yield(0, 0), Yield(0, 0)],
+            fl_setting: FlSettings::AfterRetest,
             failures: Vec::new(),
             limitchanges: None,
 
@@ -431,7 +436,7 @@ impl MyApp {
         lock.update();
         self.yields = lock.get_yields();
         self.mb_yields = lock.get_mb_yields();
-        self.failures = lock.get_failures();
+        self.failures = lock.get_failures(self.fl_setting);
         self.hourly_stats = lock.get_hourly_mb_stats();
         self.multiboard_results = lock.get_mb_results();
         self.limitchanges = lock.get_tests_w_limit_changes();
@@ -722,8 +727,8 @@ impl eframe::App for MyApp {
                 ui.vertical(|ui| {
                     ui.monospace("");
                     ui.monospace(MESSAGE[FIRST_T][self.lang]);
-                    ui.monospace(MESSAGE[AFTER_RT][self.lang]);
                     ui.monospace(MESSAGE[TOTAL][self.lang]);
+                    ui.monospace(MESSAGE[AFTER_RT][self.lang]);
                 });
 
                 ui.add(egui::Separator::default().vertical());
@@ -736,8 +741,8 @@ impl eframe::App for MyApp {
                 ui.vertical(|ui| {
                     ui.monospace("OK");
                     ui.monospace(format!("{}", x[0].0));
-                    ui.monospace(format!("{}", x[1].0));
                     ui.monospace(format!("{}", x[2].0));
+                    ui.monospace(format!("{}", x[1].0));
                 });
 
                 ui.add(egui::Separator::default().vertical());
@@ -745,8 +750,8 @@ impl eframe::App for MyApp {
                 ui.vertical(|ui| {
                     ui.monospace("NOK");
                     ui.monospace(format!("{}", x[0].1));
-                    ui.monospace(format!("{}", x[1].1));
                     ui.monospace(format!("{}", x[2].1));
+                    ui.monospace(format!("{}", x[1].1));
                 });
 
                 ui.add(egui::Separator::default().vertical());
@@ -754,29 +759,61 @@ impl eframe::App for MyApp {
                 ui.vertical(|ui| {
                     ui.monospace("%");
                     ui.monospace(format!("{0:.2}", x[0].precentage()));
-                    ui.monospace(format!("{0:.2}", x[1].precentage()));
                     ui.monospace(format!("{0:.2}", x[2].precentage()));
+                    ui.monospace(format!("{0:.2}", x[1].precentage()));
                 });
             });
 
             // Failure list:
-            if !self.failures.is_empty() {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
-                    ui.separator();
 
+            ui.vertical(|ui| {
+                ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+                ui.separator();
+
+                let mut fl_change = false;
+                egui::ComboBox::from_id_source("Fails")
+                    .selected_text(match self.fl_setting {
+                        FlSettings::FirstPass => MESSAGE[FIRST_T][self.lang],
+                        FlSettings::All => MESSAGE[TOTAL][self.lang],
+                        FlSettings::AfterRetest => MESSAGE[AFTER_RT][self.lang],
+                    })
+                    .show_ui(ui, |ui| {
+                        fl_change = ui
+                            .selectable_value(
+                                &mut self.fl_setting,
+                                FlSettings::FirstPass,
+                                MESSAGE[FIRST_T][self.lang],
+                            )
+                            .changed()
+                            || ui
+                                .selectable_value(
+                                    &mut self.fl_setting,
+                                    FlSettings::All,
+                                    MESSAGE[TOTAL][self.lang],
+                                )
+                                .changed()
+                            || ui
+                                .selectable_value(
+                                    &mut self.fl_setting,
+                                    FlSettings::AfterRetest,
+                                    MESSAGE[AFTER_RT][self.lang],
+                                )
+                                .changed();
+                    });
+                if fl_change {
+                    println!("reloading tests with mode {:?}", self.fl_setting);
+                    self.failures = self
+                        .log_master
+                        .read()
+                        .unwrap()
+                        .get_failures(self.fl_setting);
+                }
+
+                if !self.failures.is_empty() {
                     TableBuilder::new(ui)
                         .striped(true)
                         .column(Column::initial(220.0).resizable(true))
                         .column(Column::remainder())
-                        .header(20.0, |mut header| {
-                            header.col(|ui| {
-                                ui.heading(MESSAGE[FAILURES][self.lang]);
-                            });
-                            header.col(|ui| {
-                                ui.heading(MESSAGE[PCS][self.lang]);
-                            });
-                        })
                         .body(|mut body| {
                             for fail in &self.failures {
                                 body.row(16.0, |mut row| {
@@ -799,8 +836,8 @@ impl eframe::App for MyApp {
                                 });
                             }
                         });
-                });
-            }
+                }
+            });
         });
 
         // Status panel + language change
