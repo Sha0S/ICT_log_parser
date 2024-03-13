@@ -297,6 +297,8 @@ impl LogFile {
         let mut tests: Vec<Test> = Vec::new();
         let mut report: Vec<String> = Vec::new();
 
+        let mut status_code = String::new();
+
         // pre-populate pins test
         tests.push(Test {
             name: "pins".to_owned(),
@@ -328,7 +330,10 @@ impl LogFile {
                 }
                 "{@BTEST" | "}{@BTEST" => {
                     DMC = parts.next().unwrap().to_string();
-                    result = str_to_result(parts.next().unwrap());
+
+                    status_code = parts.next().unwrap().to_string();
+
+                    result = str_to_result(&status_code);
                     time_start = parts.next().unwrap().parse::<u64>().unwrap();
                     time_end = parts.nth(6).unwrap().parse::<u64>().unwrap();
                     index = parts.nth(1).unwrap().parse::<usize>().unwrap();
@@ -563,6 +568,17 @@ impl LogFile {
             }
 
             iline = lines.next();
+        }
+
+        // Check for the case, when the status is set as failed, but we found no failing tests.
+        if !result && !tests.iter().any(|f| f.result.0 == BResult::Fail ) {
+            // Push in a dummy failed test
+            tests.push(Test {
+                name: format!("Status code: {}", status_code),
+                ttype: TType::Unknown,
+                result: (BResult::Fail, 0.0),
+                limits: TLimit::None,
+            });
         }
 
         Self {
