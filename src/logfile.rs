@@ -13,6 +13,40 @@ fn str_to_result(s: &str) -> bool {
     matches!(s, "0" | "00")
 }
 
+fn str_to_status(s: &str) -> &str {
+    if let Ok(i) = s.parse::<i32>() {
+        match i {
+            0 => return "passed", 
+            1 => return "uncategorized_failure",
+            2 => return "failed_pin_test",
+            3 => return "failed_in_learn_mode",
+            4 => return "failed_shorts_test", 
+            5 => return "(reserved)", 
+            6 => return "failed_analog_test", 
+            7 => return "failed_power_supply_test", 
+            8 => return "failed_digital_or_boundary_scan_test", 
+            9 => return "failed_functional_test", 
+            10 => return "failed_pre-shorts_test", 
+            11 => return "failed_in_board_handler", 
+            12 => return "failed_barcode", 
+            13 => return "X’d_out",
+            14 => return "failed_in_VTEP_or_TestJet",
+            15 => return "failed_in_polarity_check",
+            16 => return "failed_in_ConnectCheck",
+            17 => return "failed_in_analog_cluster_test",
+            18..=79 => return "reserved",
+            80 => return "runtime_error",
+            81 => return "aborted_(STOP)",
+            82 => return "aborted_(BREAK)",
+            83..=89 => return "reserved",
+            90..=99 => return "user-definable",
+            _ => return "parsing_failed",
+        }
+    }
+
+    ""
+}
+
 // Removes the index from the testname.
 // For example: "17%c617" -> "c617"
 fn strip_index(s: &str) -> &str {
@@ -582,7 +616,7 @@ impl LogFile {
         if !result && !tests.iter().any(|f| f.result.0 == BResult::Fail ) {
             // Push in a dummy failed test
             tests.push(Test {
-                name: format!("Status code: {}", status_code),
+                name: format!("Status_code:{}_-_{}", status_code, str_to_status(&status_code)),
                 ttype: TType::Unknown,
                 result: (BResult::Fail, 0.0),
                 limits: TLimit::None,
