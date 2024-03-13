@@ -353,7 +353,15 @@ impl LogFile {
                     tests[0].result.0 = parts.nth(2).unwrap().into();
                 }
                 "{@TS" => {
-                    let tresult = parts.next().unwrap().into();
+                    let mut tresult = parts.next().unwrap().into();
+
+                    // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
+                    // So we check the next 3 fields too, they all have to be '000'
+                    for _ in 0..3 {
+                        if parts.next().unwrap() != "000" {
+                            tresult = BResult::Fail;
+                        }
+                    }
 
                     let test = Test {
                         name: strip_index(parts.last().unwrap()).to_string(),
