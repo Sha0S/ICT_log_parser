@@ -79,7 +79,7 @@ impl ScanDirWindow {
 
     pub fn update(&mut self, ctx: &egui::Context) {
         ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("LIWindow"),
+            egui::ViewportId::from_hash_of("SDirWindow"),
             egui::ViewportBuilder::default()
                 .with_title("ScanDir")
                 .with_inner_size([500.0, 300.0]),
