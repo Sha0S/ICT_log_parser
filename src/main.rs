@@ -1343,7 +1343,7 @@ impl eframe::App for MyApp {
                 // If there are tests with limit changes, then notify the user
                 if let Some(changed_tests) = &self.limitchanges {
                     ui.add_space(10.0);
-                    for (id, name) in changed_tests {
+                    for (_, name) in changed_tests {
                         if ui
                             .add(
                                 egui::Label::new(
@@ -1360,7 +1360,7 @@ impl eframe::App for MyApp {
                             )
                             .clicked()
                         {
-                            self.selected_test = *id;
+                            self.selected_test_buf = name.clone();
                             self.mode = AppMode::Plot;
                         }
                     }
