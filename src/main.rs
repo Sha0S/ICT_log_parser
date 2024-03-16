@@ -398,7 +398,7 @@ impl Default for MyApp {
             time_start_string: time_start.format("%H:%M:%S").to_string(),
             time_end,
             time_end_string: time_end.format("%H:%M:%S").to_string(),
-            time_end_use: true,
+            time_end_use: false,
 
             auto_update: AutoUpdate::default(),
 
