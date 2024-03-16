@@ -484,7 +484,7 @@ impl MyApp {
         self.clear_stats();
 
         if matches!(mode, LoadMode::ProductList(_)) && !self.time_end_use {
-            self.auto_update.enabled = false;
+            self.auto_update.enabled = true;
             self.auto_update.usable = true;
             self.auto_update.product = Some(self.selected_product);
             self.auto_update.last_scan_time = Some(Local::now());
