@@ -1393,15 +1393,14 @@ fn x_formatter(
     _max_digits: usize,
     _range: &RangeInclusive<f64>,
 ) -> String {
-    let t: DateTime<Local> = DateTime::from_timestamp(tick.value as i64, 0)
-        .unwrap()
-        .into();
+    let t: DateTime<Utc> = DateTime::from_timestamp(tick.value as i64, 0)
+        .unwrap();
 
     format!("{}\n{}", t.format("%m-%d"), t.format("%R"))
 }
 
 fn c_formater(point: &egui_plot::PlotPoint, _: &egui_plot::PlotBounds) -> String {
-    let t: DateTime<Local> = DateTime::from_timestamp(point.x as i64, 0).unwrap().into();
+    let t: DateTime<Utc> = DateTime::from_timestamp(point.x as i64, 0).unwrap();
 
     format!("x: {:+1.4E}\t t: {}", point.y, t.format("%F %R"))
 }
