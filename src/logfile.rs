@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use chrono::NaiveDateTime;
 use umya_spreadsheet::{self, Worksheet};
 
+mod keysight_log;
+
 fn str_to_result(s: &str) -> bool {
     matches!(s, "0" | "00")
 }
