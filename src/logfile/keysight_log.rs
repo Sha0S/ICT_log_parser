@@ -5,6 +5,11 @@ Implement special characters '~' (literal field) and '\' (list of fields)
 
 use std::{fs, io, path::Path, str::Chars};
 
+type Result<T> = std::result::Result<T, ParsingError>;
+
+#[derive(Debug, Clone)]
+struct ParsingError;
+
 #[derive(Debug)]
 pub enum AnalogTest {
     Cap,         // A-CAP
@@ -53,32 +58,59 @@ pub enum KeysightPrefix {
     // {@A-???|test status|measured value|subtest designator}
     Analog(AnalogTest, i32, f32, Option<String>),
 
+    // {@AID|time detected|serial number}
+    AlarmId(u64, String),
+    // {@ALM|alarm type|alarm status|time detected|board type|board type rev|alarm limit|detected value|controller|testhead number}
+    Alarm(i32, bool, u64, String, String, i32, i32, String, i32),
+
     UserDefined(Vec<String>),
-    Error(Vec<String>),
+    Error(String),
 }
 
-fn to_int(field: Option<&String>) -> Option<i32> {
+fn to_int(field: Option<&String>) -> Result<i32> {
     if let Some(string) = field {
         if let Ok(i) = string.parse::<i32>() {
-            return Some(i);
+            return Ok(i);
         }
     }
 
-    None
+    Err(ParsingError)
 }
 
-fn to_float(field: Option<&String>) -> Option<f32> {
+fn to_uint(field: Option<&String>) -> Result<u64> {
     if let Some(string) = field {
-        if let Ok(i) = string.parse::<f32>() {
-            return Some(i);
+        if let Ok(i) = string.parse::<u64>() {
+            return Ok(i);
         }
     }
 
-    None
+    Err(ParsingError)
+}
+
+fn to_float(field: Option<&String>) -> Result<f32> {
+    if let Some(string) = field {
+        if let Ok(i) = string.parse::<f32>() {
+            return Ok(i);
+        }
+    }
+
+    Err(ParsingError)
+}
+
+fn to_bool(field: Option<&String>) -> Result<bool> {
+    if let Some(string) = field {
+        match string.as_str() {
+            "0" => return Ok(false),
+            "1" => return Ok(true),
+            _ => return Err(ParsingError),
+        }
+    }
+
+    Err(ParsingError)
 }
 
 fn get_string(data: &[String], index: usize) -> Option<String> {
-    if data.len() >= index {
+    if data.len() > index {
         Some(data[index].clone())
     } else {
         None
@@ -86,38 +118,59 @@ fn get_string(data: &[String], index: usize) -> Option<String> {
 }
 
 impl KeysightPrefix {
-    fn new(data: Vec<String>) -> Option<Self> {
+    fn new(data: Vec<String>) -> Result<Self> {
         if let Some(first) = data.first() {
             match first.as_str() {
                 // {@A-???|test status|measured value|subtest designator} designator is optional
                 "@A-CAP" | "@A-DIO" | "@A-FUS" | "@A-IND" | "@A-JUM" | "@A-MEA" | "@A-NFE"
                 | "@A-PFE" | "@A-NPN" | "@A-PNP" | "@A-POT" | "@A-RES" | "@A-SWI" | "@A-ZEN" => {
-                    let status = to_int(data.get(1));
-                    let result = to_float(data.get(2));
-                    if let Some(s) = status {
-                        if let Some(r) = result {
-                            return Some(KeysightPrefix::Analog(
-                                data[0].as_str().into(),
-                                s,
-                                r,
-                                get_string(&data, 3),
-                            ));
-                        }
-                    }
-                    Some(KeysightPrefix::Error(data))
+                    Ok(KeysightPrefix::Analog(
+                        data[0].as_str().into(),
+                        to_int(data.get(1))?,
+                        to_float(data.get(2))?,
+                        get_string(&data, 3),
+                    ))
                 }
 
-                _ => Some(KeysightPrefix::UserDefined(data)),
+                // {@AID|time detected|serial number}
+                "@AID" => {
+                    if let Some(serial) = get_string(&data, 2) {
+                        Ok(KeysightPrefix::AlarmId(to_uint(data.get(1))?, serial))
+                    } else {
+                        Err(ParsingError)
+                    }
+                }
+                // {@ALM|alarm type|alarm status|time detected|board type|board type rev|alarm limit|detected value|controller|testhead number}
+                //Alarm(i32, bool, u64, String, String, i32, i32, String, i32),
+                "@ALM" => {
+                    let b_type = get_string(&data, 4);
+                    let b_rev = get_string(&data, 5);
+                    let controller = get_string(&data, 8);
+
+                    Ok(KeysightPrefix::Alarm(
+                        to_int(data.get(1))?,
+                        to_bool(data.get(2))?,
+                        to_uint(data.get(3))?,
+                        b_type.unwrap(),
+                        b_rev.unwrap(),
+                        to_int(data.get(6))?,
+                        to_int(data.get(7))?,
+                        controller.unwrap(),
+                        to_int(data.get(9))?,
+                    ))
+                }
+
+                _ => Ok(KeysightPrefix::UserDefined(data)),
             }
         } else {
-            None
+            Err(ParsingError)
         }
     }
 }
 
 #[derive(Debug)]
 pub struct TreeNode {
-    data: Option<KeysightPrefix>,
+    data: KeysightPrefix,
     branches: Vec<TreeNode>,
 }
 
@@ -140,9 +193,27 @@ impl TreeNode {
             }
         }
 
-        let data = data_buff.split('|').map(|f| f.to_string()).collect();
+        if let Ok(data) = KeysightPrefix::new(data_buff.split('|').map(|f| f.to_string()).collect())
+        {
+            TreeNode { data, branches }
+        } else {
+            TreeNode {
+                data: KeysightPrefix::Error(data_buff),
+                branches,
+            }
+        }
+    }
 
-        TreeNode { data: KeysightPrefix::new(data), branches }
+    fn print(&self, indent: i32) {
+        for _ in 0..indent {
+            print!("\t");
+        }
+
+        println!("{:?}", self.data);
+
+        for b in &self.branches {
+            b.print(indent + 1);
+        }
     }
 }
 
