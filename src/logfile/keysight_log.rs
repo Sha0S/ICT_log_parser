@@ -143,19 +143,19 @@ impl KeysightPrefix {
                 // {@ALM|alarm type|alarm status|time detected|board type|board type rev|alarm limit|detected value|controller|testhead number}
                 //Alarm(i32, bool, u64, String, String, i32, i32, String, i32),
                 "@ALM" => {
-                    let b_type = get_string(&data, 4);
-                    let b_rev = get_string(&data, 5);
-                    let controller = get_string(&data, 8);
+                    if data.len() < 10 {
+                        return Err(ParsingError);
+                    }
 
                     Ok(KeysightPrefix::Alarm(
                         to_int(data.get(1))?,
                         to_bool(data.get(2))?,
                         to_uint(data.get(3))?,
-                        b_type.unwrap(),
-                        b_rev.unwrap(),
+                        get_string(&data, 4).unwrap(),
+                        get_string(&data, 5).unwrap(),
                         to_int(data.get(6))?,
                         to_int(data.get(7))?,
-                        controller.unwrap(),
+                        get_string(&data, 8).unwrap(),
                         to_int(data.get(9))?,
                     ))
                 }
