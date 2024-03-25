@@ -5,6 +5,7 @@ Implement special characters '~' (literal field) and '\' (list of fields)
 
 use std::{fs, io, path::Path, str::Chars};
 
+#[derive(Debug)]
 pub enum AnalogTest {
     Cap,         // A-CAP
     Diode,       // A-DIO
@@ -47,6 +48,7 @@ impl From<&str> for AnalogTest {
     }
 }
 
+#[derive(Debug)]
 pub enum KeysightPrefix {
     // {@A-???|test status|measured value|subtest designator}
     Analog(AnalogTest, i32, f32, Option<String>),
@@ -102,10 +104,10 @@ impl KeysightPrefix {
                             ));
                         }
                     }
-                    Some(KeysightPrefix::Error(data.clone()))
+                    Some(KeysightPrefix::Error(data))
                 }
 
-                _ => Some(KeysightPrefix::UserDefined(data.clone())),
+                _ => Some(KeysightPrefix::UserDefined(data)),
             }
         } else {
             None
@@ -115,7 +117,7 @@ impl KeysightPrefix {
 
 #[derive(Debug)]
 pub struct TreeNode {
-    data: Vec<String>,
+    data: Option<KeysightPrefix>,
     branches: Vec<TreeNode>,
 }
 
@@ -140,10 +142,8 @@ impl TreeNode {
 
         let data = data_buff.split('|').map(|f| f.to_string()).collect();
 
-        TreeNode { data, branches }
+        TreeNode { data: KeysightPrefix::new(data), branches }
     }
-
-    pub fn interpret(&self) {}
 }
 
 pub fn parse_file(path: &Path) -> io::Result<Vec<TreeNode>> {
