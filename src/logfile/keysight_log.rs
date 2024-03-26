@@ -1,6 +1,9 @@
 /*
 ToDo:
 Implement special characters '~' (literal field) and '\' (list of fields)
+
+Q:
+- BATCH -> "version label" field?
 */
 
 use std::{fs, io, path::Path, str::Chars};
@@ -55,13 +58,45 @@ impl From<&str> for AnalogTest {
 
 #[derive(Debug)]
 pub enum KeysightPrefix {
-    // {@A-???|test status|measured value|subtest designator}
+    // {@A-???|test status|measured value (|subtest designator)}
     Analog(AnalogTest, i32, f32, Option<String>),
 
     // {@AID|time detected|serial number}
     AlarmId(u64, String),
     // {@ALM|alarm type|alarm status|time detected|board type|board type rev|alarm limit|detected value|controller|testhead number}
     Alarm(i32, bool, u64, String, String, i32, i32, String, i32),
+
+    // {@ARRAY|subtest designator|status|failure count|samples}
+    Array(String, i32, i32, i32),
+
+    // {@BATCH|UUT type|UUT type rev|fixture id|testhead number|testhead type|process step|batch id|
+    //      operator id|controller|testplan id|testplan rev|parent panel type|parent panel type rev (| version label)}
+    Batch(
+        String,
+        String,
+        i32,
+        i32,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    ),
+
+    // {@BLOCK|block designator|block status}
+    Block(String, i32),
+
+    // {@BS-CON|test designator|status|shorts count|opens count}
+    Boundary(String, i32, i32, i32),
+    // {@BS-O|first device|first pin|second device|second pin}
+    BoundaryOpen(String, i32, String, i32),
+    // {@BS-S|cause|node list}
+    BoundaryShort(String, String),
 
     UserDefined(Vec<String>),
     Error(String),
@@ -121,7 +156,7 @@ impl KeysightPrefix {
     fn new(data: Vec<String>) -> Result<Self> {
         if let Some(first) = data.first() {
             match first.as_str() {
-                // {@A-???|test status|measured value|subtest designator} designator is optional
+                // {@A-???|test status|measured value (|subtest designator)}
                 "@A-CAP" | "@A-DIO" | "@A-FUS" | "@A-IND" | "@A-JUM" | "@A-MEA" | "@A-NFE"
                 | "@A-PFE" | "@A-NPN" | "@A-PNP" | "@A-POT" | "@A-RES" | "@A-SWI" | "@A-ZEN" => {
                     Ok(KeysightPrefix::Analog(
@@ -141,7 +176,6 @@ impl KeysightPrefix {
                     }
                 }
                 // {@ALM|alarm type|alarm status|time detected|board type|board type rev|alarm limit|detected value|controller|testhead number}
-                //Alarm(i32, bool, u64, String, String, i32, i32, String, i32),
                 "@ALM" => {
                     if data.len() < 10 {
                         return Err(ParsingError);
@@ -157,6 +191,95 @@ impl KeysightPrefix {
                         to_int(data.get(7))?,
                         get_string(&data, 8).unwrap(),
                         to_int(data.get(9))?,
+                    ))
+                }
+
+                // {@ARRAY|subtest designator|status|failure count|samples}
+                "@ARRAY" => {
+                    if data.len() < 5 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Array(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                        to_int(data.get(3))?,
+                        to_int(data.get(4))?,
+                    ))
+                }
+
+                // {@BATCH|UUT type|UUT type rev|fixture id|testhead number|testhead type|process step|batch id|
+                //      operator id|controller|testplan id|testplan rev|parent panel type|parent panel type rev (| version label)}
+                "@BATCH" => {
+                    if data.len() < 14 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Batch(
+                        get_string(&data, 1).unwrap(),
+                        get_string(&data, 2).unwrap(),
+                        to_int(data.get(3))?,
+                        to_int(data.get(4))?,
+                        get_string(&data, 5).unwrap(),
+                        get_string(&data, 6).unwrap(),
+                        get_string(&data, 7).unwrap(),
+                        get_string(&data, 8).unwrap(),
+                        get_string(&data, 9).unwrap(),
+                        get_string(&data, 10).unwrap(),
+                        get_string(&data, 11).unwrap(),
+                        get_string(&data, 12).unwrap(),
+                        get_string(&data, 13).unwrap(),
+                        get_string(&data, 14),
+                    ))
+                }
+
+                // {@BLOCK|block designator|block status}
+                "@BLOCK" => {
+                    if data.len() < 3 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Block(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                    ))
+                }
+
+                // {@BS-CON|test designator|status|shorts count|opens count}
+                "@BS-CON" => {
+                    if data.len() < 5 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Boundary(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                        to_int(data.get(3))?,
+                        to_int(data.get(4))?,
+                    ))
+                }
+                // {@BS-O|first device|first pin|second device|second pin}
+                "@BS-O" => {
+                    if data.len() < 5 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::BoundaryOpen(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                        get_string(&data, 3).unwrap(),
+                        to_int(data.get(4))?,
+                    ))
+                }
+                // {@BS-S|cause|node list}
+                "@BS-S" => {
+                    if data.len() < 3 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::BoundaryShort(
+                        get_string(&data, 1).unwrap(),
+                        get_string(&data, 2).unwrap(),
                     ))
                 }
 
