@@ -183,6 +183,10 @@ pub enum KeysightPrefix {
 
 fn to_int(field: Option<&String>) -> Result<i32> {
     if let Some(string) = field {
+        if string.is_empty() {
+            return Ok(0);
+        }
+
         if let Ok(i) = string.parse::<i32>() {
             return Ok(i);
         }
@@ -193,6 +197,10 @@ fn to_int(field: Option<&String>) -> Result<i32> {
 
 fn to_uint(field: Option<&String>) -> Result<u64> {
     if let Some(string) = field {
+        if string.is_empty() {
+            return Ok(0);
+        }
+
         if let Ok(i) = string.parse::<u64>() {
             return Ok(i);
         }
@@ -203,6 +211,10 @@ fn to_uint(field: Option<&String>) -> Result<u64> {
 
 fn to_float(field: Option<&String>) -> Result<f32> {
     if let Some(string) = field {
+        if string.is_empty() {
+            return Ok(0.0);
+        }
+
         if let Ok(i) = string.parse::<f32>() {
             return Ok(i);
         }
@@ -216,6 +228,18 @@ fn to_bool(field: Option<&String>) -> Result<bool> {
         match string.as_str() {
             "0" => return Ok(false),
             "1" => return Ok(true),
+            _ => return Err(ParsingError),
+        }
+    }
+
+    Err(ParsingError)
+}
+
+fn to_bool_ch(field: Option<&String>) -> Result<bool> {
+    if let Some(string) = field {
+        match string.as_str() {
+            "n" => return Ok(false),
+            "y" => return Ok(true),
             _ => return Err(ParsingError),
         }
     }
@@ -385,8 +409,8 @@ impl KeysightPrefix {
                         to_bool(data.get(5))?,
                         get_string(&data, 6).unwrap(),
                         to_int(data.get(7))?,
-                        to_bool(data.get(8))?,
-                        to_bool(data.get(9))?,
+                        to_bool_ch(data.get(8))?,
+                        to_bool_ch(data.get(9))?,
                         to_uint(data.get(10))?,
                         get_string(&data, 11).unwrap(),
                         to_int(data.get(12))?,
