@@ -725,6 +725,10 @@ pub fn parse_file(path: &Path) -> io::Result<Vec<TreeNode>> {
             break;
         }
 
+        if c.is_some_and(|f| f != '{') {
+            continue;
+        }
+
         tree.push(TreeNode::read(&mut buffer));
     }
 
