@@ -123,6 +123,60 @@ pub enum KeysightPrefix {
     // {@DPIN|device name|node pin list|thru devnode list} with DriveThru
     DPin(String, Vec<(String, i32)>),
 
+    // {@D-PLD|Filename|Action|Action return code|Result message string|Player program counter| }
+    DPld(String, String, i32, String, i32),
+    // {@EXPRT|Key|Field}
+    Export(String, i32),
+    // {@NOTE|Note name|Note string}
+    Note(String, String),
+
+    // {@D-T|test status|test substatus|failing vector number|pin count|test designator}
+    Digital(i32, i32, i32, i32, String),
+
+    // {@INDICT|technique|device list} ex: {@INDICT|DT\3|rp6:r2|c412|r22}
+    Indict(String, Vec<String>),
+
+    // {@LIM2|high limit|low limit}
+    // {@LIM3|nominal value|high limit|low limit}
+    Lim2(f32, f32),
+    Lim3(f32, f32, f32),
+
+    // {@NETV|datetime|test system|repair system|source}
+    NetV(u64, String, String, bool),
+
+    // {@NODE\node list}
+    Node(Vec<String>),
+
+    // {@PCHK|test status|test designator}
+    PChk(i32, String),
+
+    // {@PF|designator|test status|total pins}
+    Pins(String, i32, i32),
+    // {@PIN\pin list}
+    Pin(Vec<String>),
+
+    // {@PRB|test status|pin count|test designator}
+    Prb(i32, i32, String),
+
+    // {@RETEST|datetime}
+    Retest(u64),
+    // {@RPT|message}
+    Report(String),
+
+    // {@TJET|test status|pin count|test designator}
+    TJet(i32, i32, String),
+
+    // {@TS|test status|shorts count|opens count|phantoms count (|designator) }
+    Shorts(i32, i32, i32, i32, Option<String>),
+    // {@TS-S|shorts count|phantoms count|source node}  short source
+    // {@TS-D\destination list}                         short destination
+    // {@TS-P|deviation}                                phantom shorts
+    // {@TS-O|source node|destination node|deviation}   opens
+    ShortsSrc(i32, i32, String),
+    ShortsDest(Vec<(String, f32)>),
+    ShortsPhantom(f32),
+    ShortsOpen(String, String, f32),
+
     UserDefined(Vec<String>),
     Error(String),
 }
@@ -177,10 +231,18 @@ fn get_string(data: &[String], index: usize) -> Option<String> {
     }
 }
 
+fn get_prefix(string: &String, ch: char) -> &str {
+    if let Some(end) = string.find(ch) {
+        &string[0..end]
+    } else {
+        string
+    }
+}
+
 impl KeysightPrefix {
     fn new(data: Vec<String>) -> Result<Self> {
         if let Some(first) = data.first() {
-            match first.as_str() {
+            match get_prefix(first, '\\') {
                 // {@A-???|test status|measured value (|subtest designator)}
                 "@A-CAP" | "@A-DIO" | "@A-FUS" | "@A-IND" | "@A-JUM" | "@A-MEA" | "@A-NFE"
                 | "@A-PFE" | "@A-NPN" | "@A-PNP" | "@A-POT" | "@A-RES" | "@A-SWI" | "@A-ZEN" => {
@@ -360,6 +422,214 @@ impl KeysightPrefix {
                     Ok(KeysightPrefix::DPin(
                         get_string(&data, 1).unwrap(),
                         node_pin_list,
+                    ))
+                }
+
+                // {@D-PLD|Filename|Action|Action return code|Result message string|Player program counter }
+                "@D-PLD" => {
+                    if data.len() < 6 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::DPld(
+                        get_string(&data, 1).unwrap(),
+                        get_string(&data, 2).unwrap(),
+                        to_int(data.get(3))?,
+                        get_string(&data, 4).unwrap(),
+                        to_int(data.get(5))?,
+                    ))
+                }
+
+                // {@EXPRT|Key|Field}
+                "@EXPRT" => {
+                    if data.len() < 3 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Export(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(3))?,
+                    ))
+                }
+                // {@NOTE|Note name|Note string}
+                "@NOTE" => {
+                    if data.len() < 3 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Note(
+                        get_string(&data, 1).unwrap(),
+                        get_string(&data, 2).unwrap(),
+                    ))
+                }
+
+                // {@D-T|test status|test substatus|failing vector number|pin count|test designator}
+                "@D-T" => {
+                    if data.len() < 6 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Digital(
+                        to_int(data.get(1))?,
+                        to_int(data.get(2))?,
+                        to_int(data.get(3))?,
+                        to_int(data.get(4))?,
+                        get_string(&data, 5).unwrap(),
+                    ))
+                }
+
+                // {@INDICT|technique|device list} ex: {@INDICT|DT\3|rp6:r2|c412|r22}
+                "@INDICT" => {
+                    if data.len() < 2 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Indict(
+                        get_prefix(&data[1], '\\').to_string(),
+                        data.iter().skip(2).cloned().collect(),
+                    ))
+                }
+
+                // {@LIM2|high limit|low limit}
+                // {@LIM3|nominal value|high limit|low limit}
+                "@LIM2" => Ok(KeysightPrefix::Lim2(
+                    to_float(data.get(1))?,
+                    to_float(data.get(2))?,
+                )),
+                "@LIM3" => Ok(KeysightPrefix::Lim3(
+                    to_float(data.get(1))?,
+                    to_float(data.get(2))?,
+                    to_float(data.get(3))?,
+                )),
+
+                // {@NETV|datetime|test system|repair system|source}
+                "@NETV" => {
+                    if data.len() < 5 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::NetV(
+                        to_uint(data.get(1))?,
+                        get_string(&data, 2).unwrap(),
+                        get_string(&data, 3).unwrap(),
+                        to_bool(data.get(4))?,
+                    ))
+                }
+
+                // {@NODE\node list}
+                "@NODE" => Ok(KeysightPrefix::Node(data.iter().skip(1).cloned().collect())),
+
+                // {@PCHK|test status|test designator}
+                "@PCHK" => {
+                    if data.len() < 3 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::PChk(
+                        to_int(data.get(1))?,
+                        get_string(&data, 2).unwrap(),
+                    ))
+                }
+
+                // {@PF|designator|test status|total pins}
+                "@PF" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Pins(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                        to_int(data.get(3))?,
+                    ))
+                }
+                // {@PIN\pin list}
+                "@PIN" => Ok(KeysightPrefix::Pin(data.iter().skip(1).cloned().collect())),
+
+                // {@PRB|test status|pin count|test designator}
+                "@PRB" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::Prb(
+                        to_int(data.get(1))?,
+                        to_int(data.get(2))?,
+                        get_string(&data, 3).unwrap(),
+                    ))
+                }
+
+                // {@RETEST|datetime}
+                "@RETEST" => Ok(KeysightPrefix::Retest(to_uint(data.get(1))?)),
+
+                // {@RPT|message}
+                "@RPT" => {
+                    if let Some(string) = get_string(&data, 1) {
+                        Ok(KeysightPrefix::Report(string))
+                    } else {
+                        Err(ParsingError)
+                    }
+                }
+
+                // {@TJET|test status|pin count|test designator}
+                "@TJet" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::TJet(
+                        to_int(data.get(1))?,
+                        to_int(data.get(2))?,
+                        get_string(&data, 3).unwrap(),
+                    ))
+                }
+
+                // {@TS|test status|shorts count|opens count|phantoms count (|designator) }
+                // Shorts(i32, i32, i32, i32, Option<String>),
+                "@TS" => Ok(KeysightPrefix::Shorts(
+                    to_int(data.get(1))?,
+                    to_int(data.get(2))?,
+                    to_int(data.get(3))?,
+                    to_int(data.get(4))?,
+                    get_string(&data, 5),
+                )),
+
+                // {@TS-S|shorts count|phantoms count|source node}  short source
+                // {@TS-D\destination list}                         short destination
+                // {@TS-P|deviation}                                phantom shorts
+                // {@TS-O|source node|destination node|deviation}   opens
+                "@TS-S" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::ShortsSrc(
+                        to_int(data.get(1))?,
+                        to_int(data.get(2))?,
+                        get_string(&data, 3).unwrap(),
+                    ))
+                }
+
+                "@TS-D" => {
+                    let mut dest_list = Vec::new();
+                    for i in (1..data.len()).filter(|f| *f % 2 == 0) {
+                        dest_list.push((get_string(&data, i).unwrap(), to_float(data.get(i + 1))?));
+                    }
+
+                    Ok(KeysightPrefix::ShortsDest(dest_list))
+                }
+
+                "@TS-P" => Ok(KeysightPrefix::ShortsPhantom(to_float(data.get(1))?)),
+
+                "@TS-O" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::ShortsOpen(
+                        get_string(&data, 1).unwrap(),
+                        get_string(&data, 2).unwrap(),
+                        to_float(data.get(3))?,
                     ))
                 }
 
