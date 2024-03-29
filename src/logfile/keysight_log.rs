@@ -98,6 +98,31 @@ pub enum KeysightPrefix {
     // {@BS-S|cause|node list}
     BoundaryShort(String, String),
 
+    // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
+    // known good|end datetime|status qualifier|board number|parent panel id}
+    BTest(
+        String,
+        i32,
+        u64,
+        i32,
+        bool,
+        String,
+        i32,
+        bool,
+        bool,
+        u64,
+        String,
+        i32,
+        String,
+    ),
+
+    // {@CCHK|test status|pin count|test designator}
+    CChk(i32, i32, String),
+
+    // {@DPIN|device name|node pin list} or
+    // {@DPIN|device name|node pin list|thru devnode list} with DriveThru
+    DPin(String, Vec<(String, i32)>),
+
     UserDefined(Vec<String>),
     Error(String),
 }
@@ -280,6 +305,61 @@ impl KeysightPrefix {
                     Ok(KeysightPrefix::BoundaryShort(
                         get_string(&data, 1).unwrap(),
                         get_string(&data, 2).unwrap(),
+                    ))
+                }
+
+                // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
+                // known good|end datetime|status qualifier|board number|parent panel id}
+                "@BTEST" => {
+                    if data.len() < 14 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::BTest(
+                        get_string(&data, 1).unwrap(),
+                        to_int(data.get(2))?,
+                        to_uint(data.get(3))?,
+                        to_int(data.get(4))?,
+                        to_bool(data.get(5))?,
+                        get_string(&data, 6).unwrap(),
+                        to_int(data.get(7))?,
+                        to_bool(data.get(8))?,
+                        to_bool(data.get(9))?,
+                        to_uint(data.get(10))?,
+                        get_string(&data, 11).unwrap(),
+                        to_int(data.get(12))?,
+                        get_string(&data, 13).unwrap(),
+                    ))
+                }
+
+                // {@CCHK|test status|pin count|test designator}
+                "@CCHK" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    Ok(KeysightPrefix::CChk(
+                        to_int(data.get(1))?,
+                        to_int(data.get(2))?,
+                        get_string(&data, 3).unwrap(),
+                    ))
+                }
+
+                // {@DPIN|device name|node pin list} or
+                // {@DPIN|device name|node pin list|thru devnode list} with DriveThru
+                "@DPIN" => {
+                    if data.len() < 4 {
+                        return Err(ParsingError);
+                    }
+
+                    let mut node_pin_list = Vec::new();
+                    for i in (2..data.len()).filter(|f| *f % 2 == 1) {
+                        node_pin_list
+                            .push((get_string(&data, i).unwrap(), to_int(data.get(i + 1))?));
+                    }
+                    Ok(KeysightPrefix::DPin(
+                        get_string(&data, 1).unwrap(),
+                        node_pin_list,
                     ))
                 }
 
