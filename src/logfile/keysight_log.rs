@@ -596,7 +596,7 @@ impl KeysightPrefix {
                 }
 
                 // {@TJET|test status|pin count|test designator}
-                "@TJet" => {
+                "@TJET" => {
                     if data.len() < 4 {
                         return Err(ParsingError);
                     }
