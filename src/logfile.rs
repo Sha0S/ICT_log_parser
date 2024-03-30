@@ -5,50 +5,12 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::ops::AddAssign;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::io;
 
 use chrono::NaiveDateTime;
 use umya_spreadsheet::{self, Worksheet};
 
 mod keysight_log;
-
-fn str_to_result(s: &str) -> bool {
-    matches!(s, "0" | "00")
-}
-
-fn str_to_status(s: &str) -> &str {
-    if let Ok(i) = s.parse::<i32>() {
-        match i {
-            0 => return "passed",
-            1 => return "uncategorized_failure",
-            2 => return "failed_pin_test",
-            3 => return "failed_in_learn_mode",
-            4 => return "failed_shorts_test",
-            5 => return "(reserved)",
-            6 => return "failed_analog_test",
-            7 => return "failed_power_supply_test",
-            8 => return "failed_digital_or_boundary_scan_test",
-            9 => return "failed_functional_test",
-            10 => return "failed_pre-shorts_test",
-            11 => return "failed_in_board_handler",
-            12 => return "failed_barcode",
-            13 => return "X’d_out",
-            14 => return "failed_in_VTEP_or_TestJet",
-            15 => return "failed_in_polarity_check",
-            16 => return "failed_in_ConnectCheck",
-            17 => return "failed_in_analog_cluster_test",
-            18..=79 => return "reserved",
-            80 => return "runtime_error",
-            81 => return "aborted_(STOP)",
-            82 => return "aborted_(BREAK)",
-            83..=89 => return "reserved",
-            90..=99 => return "user-definable",
-            _ => return "parsing_failed",
-        }
-    }
-
-    ""
-}
 
 // Removes the index from the testname.
 // For example: "17%c617" -> "c617"
@@ -64,20 +26,6 @@ fn strip_index(s: &str) -> &str {
     }
 
     chars.as_str()
-}
-
-// For digital and boundaryscan tests.
-// Base is "testname%digital_" or "testname%boundary_", and the function appends the next unused 'counter' to it.
-fn get_next_free_name(tests: &Vec<Test>, base: String, counter: usize) -> (String, usize) {
-    let name = format!("{}{}", base, counter);
-
-    for t in tests {
-        if t.name == name {
-            return get_next_free_name(tests, base, counter + 1);
-        }
-    }
-
-    (name, counter + 1)
 }
 
 // YYMMDDhhmmss => YY.MM.DD. hh:mm:ss
@@ -197,30 +145,6 @@ impl From<keysight_log::AnalogTest> for TType {
 }
 
 impl TType {
-    fn new(s: &str) -> Self {
-        match s {
-            "PF" => TType::Pin,
-            "TS" => TType::Shorts,
-            "A-JUM" => TType::Jumper,
-            "A-FUS" => TType::Fuse,
-            "A-RES" => TType::Resistor,
-            "A-CAP" => TType::Capacitor,
-            "A-DIO" => TType::Diode,
-            "A-ZEN" => TType::Zener,
-            "A-IND" => TType::Inductor,
-            "TJET" => TType::Testjet,
-            "D-T" => TType::Digital,
-            "A-MEA" => TType::Measurement,
-            "BS-CON" => TType::BoundaryS,
-            "RPT" => TType::Unknown,  // Failure report, not a test
-            "DPIN" => TType::Unknown, // Failure report for testjet
-            _ => {
-                println!("ERR: Unknown Test Type ! {}", s);
-                TType::Unknown
-            }
-        }
-    }
-
     fn print(&self) -> String {
         match self {
             TType::Pin => "Pin".to_string(),
@@ -771,7 +695,7 @@ impl LogFile {
 
                             tests.push(Test {
                                 name: String::from("shorts"),
-                                ttype: TType::Pin,
+                                ttype: TType::Shorts,
                                 result: (BResult::from(status), status as f32),
                                 limits: TLimit::None,
                             })
@@ -841,329 +765,6 @@ impl LogFile {
             tests,
             report,
         })
-    }
-
-    pub fn load(p: &Path) -> Self {
-        println!("INFO: Loading file {}", p.display());
-        let source = p.as_os_str().to_owned();
-        let mut DMC = String::new();
-        let mut DMC_mb = String::new();
-        let mut product_id = String::new();
-        let mut index: usize = 0;
-        let mut result: bool = false;
-        let mut time_start: u64 = 0;
-        let mut time_end: u64 = 0;
-        let mut tests: Vec<Test> = Vec::new();
-        let mut report: Vec<String> = Vec::new();
-
-        let mut status_code = String::new();
-
-        // pre-populate pins test
-        tests.push(Test {
-            name: "pins".to_owned(),
-            ttype: TType::Pin,
-            result: (BResult::Unknown, 0.0),
-            limits: TLimit::None,
-        });
-        //
-
-        let fileb = fs::read_to_string(p).unwrap();
-        let mut lines = fileb.lines();
-        let mut iline = lines.next();
-
-        //println!("\t\tINFO: Initailization done.");
-
-        while iline.is_some() {
-            let mut line = iline.unwrap().trim().trim_end_matches('}');
-            if line == "}}" || line == "}" || line.is_empty() {
-                iline = lines.next();
-                continue;
-            }
-
-            let mut parts = line.split('|');
-            let word = parts.next();
-
-            match word.unwrap() {
-                "{@BATCH" => {
-                    product_id = parts.next().unwrap().to_string();
-                }
-                "{@BTEST" | "}{@BTEST" => {
-                    DMC = parts.next().unwrap().to_string();
-
-                    status_code = parts.next().unwrap().to_string();
-
-                    result = str_to_result(&status_code);
-                    time_start = parts.next().unwrap().parse::<u64>().unwrap();
-                    time_end = parts.nth(6).unwrap().parse::<u64>().unwrap();
-                    index = parts.nth(1).unwrap().parse::<usize>().unwrap();
-                    DMC_mb = parts.next().unwrap().to_string();
-
-                    tests.clear(); // Someitmes BMW GW logs have capactiance compensation data at the start of the log. We don't want that.
-                                   // re-populate pins test
-                    tests.push(Test {
-                        name: "pins".to_owned(),
-                        ttype: TType::Pin,
-                        result: (BResult::Unknown, 0.0),
-                        limits: TLimit::None,
-                    });
-                    //
-                }
-                "{@PF" => {
-                    tests[0].result.0 = parts.nth(2).unwrap().into();
-                }
-                "{@TS" => {
-                    let mut tresult = parts.next().unwrap().into();
-
-                    // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
-                    // So we check the next 3 fields too, they all have to be '000'
-                    for _ in 0..3 {
-                        if parts.next().unwrap() != "000" {
-                            tresult = BResult::Fail;
-                        }
-                    }
-
-                    let test = Test {
-                        name: strip_index(parts.last().unwrap()).to_string(),
-                        ttype: TType::Shorts,
-                        result: (tresult, 0.0),
-                        limits: TLimit::None,
-                    };
-
-                    tests.push(test);
-
-                    _ = lines.next();
-                }
-                "{@TJET" => {
-                    // WIP - testjet
-                    // Are the testjet measuremenets always in a BLOCK?
-                    println!("ERR: Lone testjet test found! This is not implemented!!")
-                }
-                "{@D-T" => {
-                    let tresult = parts.next().unwrap().into();
-
-                    let test = Test {
-                        name: strip_index(parts.last().unwrap()).to_string(),
-                        ttype: TType::Digital,
-                        result: (tresult, 0.0),
-                        limits: TLimit::None,
-                    };
-
-                    tests.push(test);
-
-                    //_ = lines.next();
-                }
-                "{@BS-CON" => {
-                    let test = Test {
-                        name: strip_index(parts.next().unwrap()).to_string(),
-                        ttype: TType::BoundaryS,
-                        result: (parts.next().unwrap().into(), 0.0),
-                        limits: TLimit::None,
-                    };
-
-                    tests.push(test);
-                }
-                "{@RPT" => {
-                    if let Some(rpt) = parts.next() {
-                        report.push(rpt.trim_end_matches('}').to_owned());
-                    }
-                }
-                "{@BLOCK" => {
-                    let name = strip_index(parts.next().unwrap()).to_string();
-                    let _tresult = str_to_result(parts.next().unwrap());
-                    let mut dt_counter = 1;
-                    let mut bs_counter = 1;
-
-                    // PFT: Testjet and Digital measurements have a closing bracet too!
-                    // We don't want to prematurely close the BLOCK, so we need to ignore these.
-                    // Except these won't show up, if they fail, as the RPT block will folow them instead.
-                    let mut potential_fake_terminator = false;
-
-                    iline = lines.next();
-
-                    while iline.is_some() {
-                        line = iline.unwrap().trim();
-                        if line == "}" {
-                            if potential_fake_terminator {
-                                iline = lines.next();
-                                potential_fake_terminator = false;
-                                continue;
-                            } else {
-                                break;
-                            }
-                        }
-                        potential_fake_terminator = false;
-                        line = line.trim_end_matches('}');
-
-                        let mut part = line.split("{@");
-                        parts = part.nth(1).unwrap().split('|');
-
-                        let first = parts.next().unwrap();
-                        if first == "RPT" {
-                            if let Some(rpt) = parts.next() {
-                                report.push(rpt.trim_end_matches('}').to_owned());
-                            }
-
-                            iline = lines.next();
-                            continue;
-                        }
-
-                        let ttype = TType::new(first);
-
-                        match ttype {
-                            TType::Unknown => {
-                                /*let _test = Test{
-                                    name: _name.clone(),
-                                    ttype: _ttype,
-                                    result: _tresult,
-                                    measurement: "".to_string(),
-                                    limits: TLimit::None};
-
-                                _tests.push(_test);*/
-                            }
-                            TType::Testjet => {
-                                let tresult2 = parts.next().unwrap().into();
-
-                                let test = Test {
-                                    name: format!(
-                                        "{}%{}",
-                                        name,
-                                        strip_index(parts.last().unwrap())
-                                    ),
-                                    ttype,
-                                    result: (tresult2, 0.0),
-                                    limits: TLimit::None,
-                                };
-
-                                tests.push(test);
-
-                                potential_fake_terminator = true;
-                            }
-                            TType::Digital => {
-                                let tresult2 = parts.next().unwrap().into();
-                                let name2: String;
-
-                                (name2, dt_counter) = get_next_free_name(
-                                    &tests,
-                                    format!("{}%digital_", strip_index(parts.last().unwrap())),
-                                    dt_counter,
-                                );
-
-                                let test = Test {
-                                    name: name2,
-                                    ttype,
-                                    result: (tresult2, 0.0),
-                                    limits: TLimit::None,
-                                };
-
-                                tests.push(test);
-
-                                potential_fake_terminator = true;
-                            }
-                            TType::BoundaryS => {
-                                let name2: String;
-
-                                (name2, bs_counter) = get_next_free_name(
-                                    &tests,
-                                    format!("{}%boundary_", strip_index(parts.next().unwrap())),
-                                    bs_counter,
-                                );
-
-                                let test = Test {
-                                    name: name2,
-                                    ttype: TType::BoundaryS,
-                                    result: (parts.next().unwrap().into(), 0.0),
-                                    limits: TLimit::None,
-                                };
-
-                                tests.push(test);
-                            }
-                            _ => {
-                                let mut name2 = name.clone();
-                                let tresult2 = parts.next().unwrap().into();
-                                let measurement = parts.next().unwrap().parse::<f32>().unwrap();
-
-                                if let Some(x) = parts.next() {
-                                    name2 = name2 + "%" + x;
-                                }
-
-                                let limits: TLimit;
-                                match part.next() {
-                                    Some(x) => {
-                                        parts = x.trim_end_matches('}').split('|');
-                                        match parts.next().unwrap() {
-                                            "LIM2" => {
-                                                limits = TLimit::Lim2(
-                                                    parts.next().unwrap().parse::<f32>().unwrap(),
-                                                    parts.next().unwrap().parse::<f32>().unwrap(),
-                                                );
-                                            }
-                                            "LIM3" => {
-                                                limits = TLimit::Lim3(
-                                                    parts.next().unwrap().parse::<f32>().unwrap(),
-                                                    parts.next().unwrap().parse::<f32>().unwrap(),
-                                                    parts.next().unwrap().parse::<f32>().unwrap(),
-                                                );
-                                            }
-                                            _ => {
-                                                limits = TLimit::None;
-                                            }
-                                        }
-                                    }
-
-                                    None => {
-                                        limits = TLimit::None;
-                                    }
-                                }
-
-                                let test = Test {
-                                    name: name2,
-                                    ttype,
-                                    result: (tresult2, measurement),
-                                    limits,
-                                };
-
-                                tests.push(test);
-                            }
-                        }
-
-                        iline = lines.next();
-                    }
-                }
-                _ => {
-                    println!("\tW: Unable to process {}", word.unwrap());
-                }
-            }
-
-            iline = lines.next();
-        }
-
-        // Check for the case, when the status is set as failed, but we found no failing tests.
-        if !result && !tests.iter().any(|f| f.result.0 == BResult::Fail) {
-            // Push in a dummy failed test
-            tests.push(Test {
-                name: format!(
-                    "Status_code:{}_-_{}",
-                    status_code,
-                    str_to_status(&status_code)
-                ),
-                ttype: TType::Unknown,
-                result: (BResult::Fail, 0.0),
-                limits: TLimit::None,
-            });
-        }
-
-        Self {
-            source,
-            DMC,
-            DMC_mb,
-            product_id,
-            index,
-            result,
-            time_start,
-            time_end,
-            tests,
-            report,
-        }
     }
 }
 
@@ -1584,18 +1185,6 @@ impl MultiBoard {
         }
 
         resultlist
-    }
-
-    fn get_reports(&self) -> Vec<String> {
-        let mut ret: Vec<String> = Vec::new();
-
-        for sb in &self.boards {
-            if !sb.all_ok() {
-                ret.append(&mut sb.get_reports());
-            }
-        }
-
-        ret
     }
 }
 
@@ -2241,13 +1830,13 @@ impl LogFileHandler {
         None
     }
 
-    pub fn get_report_for_MB(&self, DMC: &str) -> Option<Vec<String>> {
+    /*pub fn get_report_for_MB(&self, DMC: &str) -> Option<Vec<String>> {
         if let Some(board) = self.get_mb_w_DMC(DMC) {
             return Some(board.get_reports());
         }
 
         None
-    }
+    }*/
 
     pub fn get_report_for_SB(&self, DMC: &str) -> Option<Vec<String>> {
         if let Some(board) = self.get_sb_w_DMC(DMC) {

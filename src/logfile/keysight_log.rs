@@ -730,18 +730,6 @@ impl TreeNode {
             }
         }
     }
-
-    fn print(&self, indent: i32) {
-        for _ in 0..indent {
-            print!("\t");
-        }
-
-        println!("{:?}", self.data);
-
-        for b in &self.branches {
-            b.print(indent + 1);
-        }
-    }
 }
 
 pub fn parse_file(path: &Path) -> io::Result<Vec<TreeNode>> {
