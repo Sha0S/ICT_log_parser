@@ -2,9 +2,9 @@
 #![allow(non_snake_case)]
 
 use std::ffi::OsString;
-use std::fs;
 use std::ops::AddAssign;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use chrono::NaiveDateTime;
 use umya_spreadsheet::{self, Worksheet};
@@ -18,19 +18,19 @@ fn str_to_result(s: &str) -> bool {
 fn str_to_status(s: &str) -> &str {
     if let Ok(i) = s.parse::<i32>() {
         match i {
-            0 => return "passed", 
+            0 => return "passed",
             1 => return "uncategorized_failure",
             2 => return "failed_pin_test",
             3 => return "failed_in_learn_mode",
-            4 => return "failed_shorts_test", 
-            5 => return "(reserved)", 
-            6 => return "failed_analog_test", 
-            7 => return "failed_power_supply_test", 
-            8 => return "failed_digital_or_boundary_scan_test", 
-            9 => return "failed_functional_test", 
-            10 => return "failed_pre-shorts_test", 
-            11 => return "failed_in_board_handler", 
-            12 => return "failed_barcode", 
+            4 => return "failed_shorts_test",
+            5 => return "(reserved)",
+            6 => return "failed_analog_test",
+            7 => return "failed_power_supply_test",
+            8 => return "failed_digital_or_boundary_scan_test",
+            9 => return "failed_functional_test",
+            10 => return "failed_pre-shorts_test",
+            11 => return "failed_in_board_handler",
+            12 => return "failed_barcode",
             13 => return "X’d_out",
             14 => return "failed_in_VTEP_or_TestJet",
             15 => return "failed_in_polarity_check",
@@ -173,6 +173,28 @@ pub enum TType {
     Unknown,
 }
 
+impl From<keysight_log::AnalogTest> for TType {
+    fn from(value: keysight_log::AnalogTest) -> Self {
+        match value {
+            keysight_log::AnalogTest::Cap => TType::Capacitor,
+            keysight_log::AnalogTest::Diode => TType::Diode,
+            keysight_log::AnalogTest::Fuse => TType::Fuse,
+            keysight_log::AnalogTest::Inductor => TType::Inductor,
+            keysight_log::AnalogTest::Jumper => TType::Jumper,
+            keysight_log::AnalogTest::Measurement => TType::Measurement,
+            keysight_log::AnalogTest::NFet => todo!(),
+            keysight_log::AnalogTest::PFet => todo!(),
+            keysight_log::AnalogTest::Npn => todo!(),
+            keysight_log::AnalogTest::Pnp => todo!(),
+            keysight_log::AnalogTest::Pot => todo!(),
+            keysight_log::AnalogTest::Res => TType::Resistor,
+            keysight_log::AnalogTest::Switch => todo!(),
+            keysight_log::AnalogTest::Zener => TType::Zener,
+            keysight_log::AnalogTest::Error => TType::Unknown,
+        }
+    }
+}
+
 impl TType {
     fn new(s: &str) -> Self {
         match s {
@@ -238,6 +260,16 @@ impl From<bool> for BResult {
         }
 
         BResult::Fail
+    }
+}
+
+impl From<i32> for BResult {
+    fn from(value: i32) -> Self {
+        if value == 0 {
+            BResult::Pass
+        } else {
+            BResult::Fail
+        }
     }
 }
 
@@ -320,6 +352,329 @@ pub struct LogFile {
 }
 
 impl LogFile {
+    pub fn load_v2(p: &Path) -> io::Result<Self> {
+        println!("INFO: Loading (v2) file {}", p.display());
+        let source = p.as_os_str().to_owned();
+
+        let mut product_id = String::new();
+        //let mut revision_id = String::new(); // ! New, needs to be implemented in the program
+
+        let mut DMC = String::new();
+        let mut DMC_mb = String::new();
+        let mut index = 0;
+        let mut time_start: u64 = 0;
+        let mut time_end: u64 = 0;
+
+        let mut tests: Vec<Test> = Vec::new();
+        let mut report: Vec<String> = Vec::new();
+
+        // pre-populate pins test
+        tests.push(Test {
+            name: "pins".to_owned(),
+            ttype: TType::Pin,
+            result: (BResult::Unknown, 0.0),
+            limits: TLimit::None,
+        });
+        //
+
+        let mut status_code = 99;
+
+        let tree = keysight_log::parse_file(p)?;
+
+        if let Some(batch) = tree.last() {
+            // {@BATCH|UUT type|UUT type rev|fixture id|testhead number|testhead type|process step|batch id|
+            //      operator id|controller|testplan id|testplan rev|parent panel type|parent panel type rev (| version label)}
+            if let keysight_log::KeysightPrefix::Batch(
+                p_id,
+                _, //r_id,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+            ) = &batch.data
+            {
+                product_id = p_id.clone();
+                //revision_id = r_id.clone();
+            }
+
+            if let Some(btest) = batch.branches.last() {
+                // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
+                // known good|end datetime|status qualifier|board number|parent panel id}
+                if let keysight_log::KeysightPrefix::BTest(
+                    b_id,
+                    b_status,
+                    t_start,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    t_end,
+                    _,
+                    b_index,
+                    mb_id,
+                ) = &btest.data
+                {
+                    DMC = b_id.clone();
+                    DMC_mb = mb_id.clone();
+                    status_code = *b_status;
+                    time_start = *t_start;
+                    time_end = *t_end;
+                    index = *b_index as usize;
+                }
+
+                for test in &btest.branches {
+                    match &test.data {
+                        keysight_log::KeysightPrefix::Analog(analog, status, result, sub_name) => {
+                            if let Some(name) = sub_name {
+                                let limits = match test.branches.first() {
+                                    Some(lim) => match lim.data {
+                                        keysight_log::KeysightPrefix::Lim2(max, min) => {
+                                            TLimit::Lim2(max, min)
+                                        }
+                                        keysight_log::KeysightPrefix::Lim3(nom, max, min) => {
+                                            TLimit::Lim3(nom, max, min)
+                                        }
+                                        _ => {
+                                            println!(
+                                                "ERR: Analog test limit parsing error!\n\t{:?}",
+                                                lim.data
+                                            );
+                                            TLimit::None
+                                        }
+                                    },
+                                    None => TLimit::None,
+                                };
+
+                                tests.push(Test {
+                                    name: strip_index(name).to_string(),
+                                    ttype: TType::from(*analog),
+                                    result: (BResult::from(*status), *result),
+                                    limits,
+                                })
+                            } else {
+                                println!(
+                                    "ERR: Analog test outside of a BLOCK and without name!\n\t{:?}",
+                                    test.data
+                                );
+                            }
+                        }
+                        keysight_log::KeysightPrefix::AlarmId(_, _) => todo!(),
+                        keysight_log::KeysightPrefix::Alarm(_, _, _, _, _, _, _, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::Array(_, _, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::Block(b_name, _) => {
+                            let block_name = strip_index(b_name).to_string();
+                            for sub_test in &test.branches {
+                                match &sub_test.data {
+                                    keysight_log::KeysightPrefix::Analog(
+                                        analog,
+                                        status,
+                                        result,
+                                        sub_name,
+                                    ) => {
+                                        let limits = match sub_test.branches.first() {
+                                            Some(lim) => match lim.data {
+                                                keysight_log::KeysightPrefix::Lim2(max, min) => {
+                                                    TLimit::Lim2(max, min)
+                                                }
+                                                keysight_log::KeysightPrefix::Lim3(
+                                                    nom,
+                                                    max,
+                                                    min,
+                                                ) => TLimit::Lim3(nom, max, min),
+                                                _ => {
+                                                    println!("ERR: Analog test limit parsing error!\n\t{:?}", lim.data);
+                                                    TLimit::None
+                                                }
+                                            },
+                                            None => TLimit::None,
+                                        };
+
+                                        let mut name = block_name.clone();
+                                        if let Some(sn) = &sub_name {
+                                            name = format!("{}%{}", name, sn);
+                                        }
+
+                                        tests.push(Test {
+                                            name,
+                                            ttype: TType::from(*analog),
+                                            result: (BResult::from(*status), *result),
+                                            limits,
+                                        })
+                                    }
+                                    keysight_log::KeysightPrefix::Digital(
+                                        status,
+                                        _,
+                                        _,
+                                        _,
+                                        sub_name,
+                                    ) => {
+                                        // subrecords: DPIN - ToDo!
+
+                                        let name =
+                                            format!("{}%{}", block_name, strip_index(sub_name));
+                                        tests.push(Test {
+                                            name,
+                                            ttype: TType::Digital,
+                                            result: (BResult::from(*status), *status as f32),
+                                            limits: TLimit::None,
+                                        })
+                                    }
+                                    keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
+                                        // subrecords: DPIN - ToDo!
+
+                                        let name =
+                                            format!("{}%{}", block_name, strip_index(sub_name));
+                                        tests.push(Test {
+                                            name,
+                                            ttype: TType::Testjet,
+                                            result: (BResult::from(*status), *status as f32),
+                                            limits: TLimit::None,
+                                        })
+                                    }
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    keysight_log::KeysightPrefix::UserDefined(s) => {
+                                        println!(
+                                            "ERR: Not implemented USER DEFINED block!\n\t{:?}",
+                                            s
+                                        );
+                                    }
+                                    keysight_log::KeysightPrefix::Error(s) => {
+                                        println!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                                    }
+                                    _ => {
+                                        println!(
+                                            "ERR: Found a invalid field nested in BLOCK!\n\t{:?}",
+                                            sub_test.data
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        keysight_log::KeysightPrefix::Boundary(test_name, status, _, _) => {
+                            // Subrecords: BS-O, BS-S - ToDo
+
+                            tests.push(Test {
+                                name: strip_index(test_name).to_string(),
+                                ttype: TType::BoundaryS,
+                                result: (BResult::from(*status), *status as f32),
+                                limits: TLimit::None,
+                            })
+                        }
+                        keysight_log::KeysightPrefix::CChk(_, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::DPld(_, _, _, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::Export(_, _) => todo!(),
+                        keysight_log::KeysightPrefix::Note(_, _) => todo!(),
+                        keysight_log::KeysightPrefix::Digital(status, _, _, _, test_name) => {
+                            // subrecords: DPIN - ToDo!
+
+                            tests.push(Test {
+                                name: strip_index(test_name).to_string(),
+                                ttype: TType::Digital,
+                                result: (BResult::from(*status), *status as f32),
+                                limits: TLimit::None,
+                            })
+                        }
+                        keysight_log::KeysightPrefix::Indict(_, _) => todo!(),
+                        keysight_log::KeysightPrefix::NetV(_, _, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::Node(_) => todo!(),
+                        keysight_log::KeysightPrefix::PChk(_, _) => todo!(),
+                        keysight_log::KeysightPrefix::Pins(_, status, _) => {
+                            // Subrecord: Pin - ToDo
+
+                            tests[0].result = (BResult::from(*status), *status as f32);
+                        }
+                        keysight_log::KeysightPrefix::Prb(_, _, _) => todo!(),
+                        keysight_log::KeysightPrefix::Retest(_) => todo!(),
+                        keysight_log::KeysightPrefix::Report(rpt) => {
+                            report.push(rpt.clone());
+                        }
+                        keysight_log::KeysightPrefix::TJet(status, _, test_name) => {
+                            // subrecords: DPIN - ToDo!
+
+                            tests.push(Test {
+                                name: strip_index(test_name).to_string(),
+                                ttype: TType::Testjet,
+                                result: (BResult::from(*status), *status as f32),
+                                limits: TLimit::None,
+                            })
+                        }
+                        keysight_log::KeysightPrefix::Shorts(mut status, s1, s2, s3, _) => {
+                            //keysight_log::KeysightPrefix::ShortsSrc(_, _, _) => todo!(),
+                            //keysight_log::KeysightPrefix::ShortsDest(_) => todo!(),
+                            //keysight_log::KeysightPrefix::ShortsPhantom(_) => todo!(),
+                            //keysight_log::KeysightPrefix::ShortsOpen(_, _, _) => todo!(),
+
+                            // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
+                            // So we check the next 3 fields too, they all have to be '000'
+                            if *s1 > 0 || *s2 > 0 || *s3 > 0 {
+                                status = 1;
+                            }
+
+                            tests.push(Test {
+                                name: String::from("shorts"),
+                                ttype: TType::Pin,
+                                result: (BResult::from(status), status as f32),
+                                limits: TLimit::None,
+                            })
+                        }
+                        keysight_log::KeysightPrefix::UserDefined(s) => {
+                            println!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                        }
+                        keysight_log::KeysightPrefix::Error(s) => {
+                            println!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                        }
+                        _ => {
+                            println!(
+                                "ERR: Found a invalid field nested in BTEST!\n\t{:?}",
+                                test.data
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check for the case, when the status is set as failed, but we found no failing tests.
+        if status_code != 0 && !tests.iter().any(|f| f.result.0 == BResult::Fail) {
+            // Push in a dummy failed test
+            tests.push(Test {
+                name: format!(
+                    "Status_code:{}_-_{}",
+                    status_code,
+                    keysight_log::status_to_str(status_code)
+                ),
+                ttype: TType::Unknown,
+                result: (BResult::Fail, 0.0),
+                limits: TLimit::None,
+            });
+        }
+
+        Ok(LogFile {
+            source,
+            DMC,
+            DMC_mb,
+            product_id,
+            index,
+            result: status_code == 0,
+            time_start,
+            time_end,
+            tests,
+            report,
+        })
+    }
+
     pub fn load(p: &Path) -> Self {
         println!("INFO: Loading file {}", p.display());
         let source = p.as_os_str().to_owned();
@@ -615,10 +970,14 @@ impl LogFile {
         }
 
         // Check for the case, when the status is set as failed, but we found no failing tests.
-        if !result && !tests.iter().any(|f| f.result.0 == BResult::Fail ) {
+        if !result && !tests.iter().any(|f| f.result.0 == BResult::Fail) {
             // Push in a dummy failed test
             tests.push(Test {
-                name: format!("Status_code:{}_-_{}", status_code, str_to_status(&status_code)),
+                name: format!(
+                    "Status_code:{}_-_{}",
+                    status_code,
+                    str_to_status(&status_code)
+                ),
                 ttype: TType::Unknown,
                 result: (BResult::Fail, 0.0),
                 limits: TLimit::None,
@@ -1119,7 +1478,11 @@ impl LogFileHandler {
 
     pub fn push_from_file(&mut self, p: &Path) -> bool {
         //println!("INFO: Pushing file {} into log-stack", p.display());
-        self.push(LogFile::load(p))
+        if let Ok(log) = LogFile::load_v2(p) {
+            self.push(log)
+        } else {
+            false
+        }
     }
 
     pub fn push(&mut self, mut log: LogFile) -> bool {

@@ -13,7 +13,7 @@ type Result<T> = std::result::Result<T, ParsingError>;
 #[derive(Debug, Clone)]
 struct ParsingError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AnalogTest {
     Cap,         // A-CAP
     Diode,       // A-DIO
@@ -56,7 +56,37 @@ impl From<&str> for AnalogTest {
     }
 }
 
-#[derive(Debug)]
+pub fn status_to_str(s: i32) -> String {
+    match s {
+        0 => "passed".to_string(),
+        1 => "uncategorized_failure".to_string(),
+        2 => "failed_pin_test".to_string(),
+        3 => "failed_in_learn_mode".to_string(),
+        4 => "failed_shorts_test".to_string(),
+        5 => "(reserved)".to_string(),
+        6 => "failed_analog_test".to_string(),
+        7 => "failed_power_supply_test".to_string(),
+        8 => "failed_digital_or_boundary_scan_test".to_string(),
+        9 => "failed_functional_test".to_string(),
+        10 => "failed_pre-shorts_test".to_string(),
+        11 => "failed_in_board_handler".to_string(),
+        12 => "failed_barcode".to_string(),
+        13 => "X’d_out".to_string(),
+        14 => "failed_in_VTEP_or_TestJet".to_string(),
+        15 => "failed_in_polarity_check".to_string(),
+        16 => "failed_in_ConnectCheck".to_string(),
+        17 => "failed_in_analog_cluster_test".to_string(),
+        18..=79 => "reserved".to_string(),
+        80 => "runtime_error".to_string(),
+        81 => "aborted_(STOP)".to_string(),
+        82 => "aborted_(BREAK)".to_string(),
+        83..=89 => "reserved".to_string(),
+        90..=99 => "user-definable".to_string(),
+        _ => "parsing_failed".to_string(),
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum KeysightPrefix {
     // {@A-???|test status|measured value (|subtest designator)}
     Analog(AnalogTest, i32, f32, Option<String>),
@@ -667,8 +697,8 @@ impl KeysightPrefix {
 
 #[derive(Debug)]
 pub struct TreeNode {
-    data: KeysightPrefix,
-    branches: Vec<TreeNode>,
+    pub data: KeysightPrefix,
+    pub branches: Vec<TreeNode>,
 }
 
 impl TreeNode {
