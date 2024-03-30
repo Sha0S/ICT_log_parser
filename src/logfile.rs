@@ -474,6 +474,9 @@ impl LogFile {
                         keysight_log::KeysightPrefix::Array(_, _, _, _) => todo!(),
                         keysight_log::KeysightPrefix::Block(b_name, _) => {
                             let block_name = strip_index(b_name).to_string();
+                            let mut digital_tp: Option<usize> = None;
+                            let mut boundary_tp: Option<usize> = None;
+
                             for sub_test in &test.branches {
                                 match &sub_test.data {
                                     keysight_log::KeysightPrefix::Analog(
@@ -521,14 +524,20 @@ impl LogFile {
                                     ) => {
                                         // subrecords: DPIN - ToDo!
 
-                                        let name =
-                                            format!("{}%{}", block_name, strip_index(sub_name));
-                                        tests.push(Test {
-                                            name,
-                                            ttype: TType::Digital,
-                                            result: (BResult::from(*status), *status as f32),
-                                            limits: TLimit::None,
-                                        })
+                                        if let Some(dt) = digital_tp {
+                                            if *status != 0 {
+                                                tests[dt].result =
+                                                    (BResult::from(*status), *status as f32);
+                                            }
+                                        } else {
+                                            digital_tp = Some(tests.len());
+                                            tests.push(Test {
+                                                name: strip_index(sub_name).to_string(),
+                                                ttype: TType::Digital,
+                                                result: (BResult::from(*status), *status as f32),
+                                                limits: TLimit::None,
+                                            });
+                                        }
                                     }
                                     keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
                                         // subrecords: DPIN - ToDo!
@@ -541,6 +550,29 @@ impl LogFile {
                                             result: (BResult::from(*status), *status as f32),
                                             limits: TLimit::None,
                                         })
+                                    }
+                                    keysight_log::KeysightPrefix::Boundary(
+                                        sub_name,
+                                        status,
+                                        _,
+                                        _,
+                                    ) => {
+                                        // Subrecords: BS-O, BS-S - ToDo
+
+                                        if let Some(dt) = boundary_tp {
+                                            if *status != 0 {
+                                                tests[dt].result =
+                                                    (BResult::from(*status), *status as f32);
+                                            }
+                                        } else {
+                                            boundary_tp = Some(tests.len());
+                                            tests.push(Test {
+                                                name: strip_index(sub_name).to_string(),
+                                                ttype: TType::BoundaryS,
+                                                result: (BResult::from(*status), *status as f32),
+                                                limits: TLimit::None,
+                                            })
+                                        }
                                     }
                                     keysight_log::KeysightPrefix::Report(rpt) => {
                                         report.push(rpt.clone());
@@ -630,9 +662,30 @@ impl LogFile {
                                 limits: TLimit::None,
                             })
                         }
-                        keysight_log::KeysightPrefix::UserDefined(s) => {
-                            println!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
-                        }
+                        keysight_log::KeysightPrefix::UserDefined(s) => match s[0].as_str() {
+                            "@Programming_time" => {
+                                if let Some(t) = s[1].strip_suffix("msec") {
+                                    if let Ok(ts) = t.parse::<i32>() {
+                                        tests.push(Test {
+                                            name: String::from("Programming_time"),
+                                            ttype: TType::Unknown,
+                                            result: (BResult::Pass, ts as f32 / 1000.0),
+                                            limits: TLimit::None,
+                                        })
+                                    } else {
+                                        println!(
+                                            "ERR: Parsing error at @Programming_time!\n\t{:?}",
+                                            s
+                                        );
+                                    }
+                                } else {
+                                    println!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                                }
+                            }
+                            _ => {
+                                println!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                            }
+                        },
                         keysight_log::KeysightPrefix::Error(s) => {
                             println!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
                         }
