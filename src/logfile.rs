@@ -435,6 +435,7 @@ impl LogFile {
 
                 for test in &btest.branches {
                     match &test.data {
+                        // I haven't encountered any analog fields outside of a BLOCK, so this might be not needed.
                         keysight_log::KeysightPrefix::Analog(analog, status, result, sub_name) => {
                             if let Some(name) = sub_name {
                                 let limits = match test.branches.first() {
@@ -455,6 +456,17 @@ impl LogFile {
                                     },
                                     None => TLimit::None,
                                 };
+
+                                for subfield in test.branches.iter().skip(1) {
+                                    match &subfield.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        _ => {
+                                            println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        }
+                                    }
+                                }
 
                                 tests.push(Test {
                                     name: strip_index(name).to_string(),
@@ -503,6 +515,17 @@ impl LogFile {
                                             None => TLimit::None,
                                         };
 
+                                        for subfield in sub_test.branches.iter().skip(1) {
+                                            match &subfield.data {
+                                                keysight_log::KeysightPrefix::Report(rpt) => {
+                                                    report.push(rpt.clone());
+                                                }
+                                                _ => {
+                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                }
+                                            }
+                                        }
+
                                         let mut name = block_name.clone();
                                         if let Some(sn) = &sub_name {
                                             name = format!("{}%{}", name, sn);
@@ -524,6 +547,17 @@ impl LogFile {
                                     ) => {
                                         // subrecords: DPIN - ToDo!
 
+                                        for subfield in sub_test.branches.iter() {
+                                            match &subfield.data {
+                                                keysight_log::KeysightPrefix::Report(rpt) => {
+                                                    report.push(rpt.clone());
+                                                }
+                                                _ => {
+                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                }
+                                            }
+                                        }
+
                                         if let Some(dt) = digital_tp {
                                             if *status != 0 {
                                                 tests[dt].result =
@@ -542,6 +576,17 @@ impl LogFile {
                                     keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
                                         // subrecords: DPIN - ToDo!
 
+                                        for subfield in sub_test.branches.iter() {
+                                            match &subfield.data {
+                                                keysight_log::KeysightPrefix::Report(rpt) => {
+                                                    report.push(rpt.clone());
+                                                }
+                                                _ => {
+                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                }
+                                            }
+                                        }
+
                                         let name =
                                             format!("{}%{}", block_name, strip_index(sub_name));
                                         tests.push(Test {
@@ -558,6 +603,17 @@ impl LogFile {
                                         _,
                                     ) => {
                                         // Subrecords: BS-O, BS-S - ToDo
+
+                                        for subfield in sub_test.branches.iter() {
+                                            match &subfield.data {
+                                                keysight_log::KeysightPrefix::Report(rpt) => {
+                                                    report.push(rpt.clone());
+                                                }
+                                                _ => {
+                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                }
+                                            }
+                                        }
 
                                         if let Some(dt) = boundary_tp {
                                             if *status != 0 {
@@ -595,8 +651,21 @@ impl LogFile {
                                 }
                             }
                         }
+                        
+                        // Boundary exists in BLOCK and as a solo filed if it fails.
                         keysight_log::KeysightPrefix::Boundary(test_name, status, _, _) => {
                             // Subrecords: BS-O, BS-S - ToDo
+
+                            for subfield in test.branches.iter() {
+                                match &subfield.data {
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    _ => {
+                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                    }
+                                }
+                            }
 
                             tests.push(Test {
                                 name: strip_index(test_name).to_string(),
@@ -609,8 +678,20 @@ impl LogFile {
                         keysight_log::KeysightPrefix::DPld(_, _, _, _, _) => todo!(),
                         keysight_log::KeysightPrefix::Export(_, _) => todo!(),
                         keysight_log::KeysightPrefix::Note(_, _) => todo!(),
+
+                        // Digital tests can be present as a BLOCK member, or solo.
                         keysight_log::KeysightPrefix::Digital(status, _, _, _, test_name) => {
                             // subrecords: DPIN - ToDo!
+                            for subfield in test.branches.iter() {
+                                match &subfield.data {
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    _ => {
+                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                    }
+                                }
+                            }
 
                             tests.push(Test {
                                 name: strip_index(test_name).to_string(),
@@ -625,6 +706,16 @@ impl LogFile {
                         keysight_log::KeysightPrefix::PChk(_, _) => todo!(),
                         keysight_log::KeysightPrefix::Pins(_, status, _) => {
                             // Subrecord: Pin - ToDo
+                            for subfield in test.branches.iter() {
+                                match &subfield.data {
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    _ => {
+                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                    }
+                                }
+                            }
 
                             tests[0].result = (BResult::from(*status), *status as f32);
                         }
@@ -633,8 +724,20 @@ impl LogFile {
                         keysight_log::KeysightPrefix::Report(rpt) => {
                             report.push(rpt.clone());
                         }
+
+                        // I haven't encountered any testjet fields outside of a BLOCK, so this might be not needed.
                         keysight_log::KeysightPrefix::TJet(status, _, test_name) => {
                             // subrecords: DPIN - ToDo!
+                            for subfield in test.branches.iter() {
+                                match &subfield.data {
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    _ => {
+                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                    }
+                                }
+                            }
 
                             tests.push(Test {
                                 name: strip_index(test_name).to_string(),
@@ -653,6 +756,17 @@ impl LogFile {
                             // So we check the next 3 fields too, they all have to be '000'
                             if *s1 > 0 || *s2 > 0 || *s3 > 0 {
                                 status = 1;
+                            }
+
+                            for subfield in test.branches.iter() {
+                                match &subfield.data {
+                                    keysight_log::KeysightPrefix::Report(rpt) => {
+                                        report.push(rpt.clone());
+                                    }
+                                    _ => {
+                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                    }
+                                }
                             }
 
                             tests.push(Test {
