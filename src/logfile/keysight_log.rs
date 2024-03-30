@@ -151,7 +151,7 @@ pub enum KeysightPrefix {
 
     // {@DPIN|device name|node pin list} or
     // {@DPIN|device name|node pin list|thru devnode list} with DriveThru
-    DPin(String, Vec<(String, i32)>),
+    DPin(String, Vec<(String, String)>),
 
     // {@D-PLD|Filename|Action|Action return code|Result message string|Player program counter| }
     DPld(String, String, i32, String, i32),
@@ -469,12 +469,12 @@ impl KeysightPrefix {
                     }
 
                     let mut node_pin_list = Vec::new();
-                    for i in (2..data.len()).filter(|f| *f % 2 == 1) {
+                    for i in (2..data.len()).filter(|f| *f % 2 == 0) {
                         node_pin_list
-                            .push((get_string(&data, i).unwrap(), to_int(data.get(i + 1))?));
+                            .push((get_string(&data, i).unwrap(), get_string(&data, i+1).unwrap()));
                     }
                     Ok(KeysightPrefix::DPin(
-                        get_string(&data, 1).unwrap(),
+                        get_prefix(&get_string(&data, 1).unwrap(), '\\').to_string(),
                         node_pin_list,
                     ))
                 }
