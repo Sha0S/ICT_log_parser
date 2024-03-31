@@ -469,7 +469,7 @@ impl KeysightPrefix {
                     }
 
                     let mut node_pin_list = Vec::new();
-                    for i in (2..data.len()).filter(|f| *f % 2 == 0) {
+                    for i in (2..data.len()).step_by(2) {
                         node_pin_list
                             .push((get_string(&data, i).unwrap(), get_string(&data, i+1).unwrap()));
                     }
@@ -666,7 +666,7 @@ impl KeysightPrefix {
 
                 "@TS-D" => {
                     let mut dest_list = Vec::new();
-                    for i in (1..data.len()).filter(|f| *f % 2 == 0) {
+                    for i in (1..data.len()).step_by(2) {
                         dest_list.push((get_string(&data, i).unwrap(), to_float(data.get(i + 1))?));
                     }
 
