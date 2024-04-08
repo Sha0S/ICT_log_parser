@@ -746,6 +746,11 @@ impl LogFile {
                         }
                         keysight_log::KeysightPrefix::UserDefined(s) => match s[0].as_str() {
                             "@Programming_time" => {
+                                if s.len() < 2 {
+                                    println!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                                    continue;
+                                }
+
                                 if let Some(t) = s[1].strip_suffix("msec") {
                                     if let Ok(ts) = t.parse::<i32>() {
                                         tests.push(Test {
