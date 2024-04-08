@@ -1111,17 +1111,7 @@ impl eframe::App for MyApp {
                         .custom_x_axes(vec![egui_plot::AxisHints::new_x().formatter(x_formatter)])
                         .custom_y_axes(vec![egui_plot::AxisHints::new_y()
                             .formatter(y_formatter)
-                            .label(match self.selected_test_results.0 {
-                                TType::Capacitor => "F",
-                                TType::Resistor => "Ω",
-                                TType::Jumper => "Ω",
-                                TType::Fuse => "Ω",
-                                TType::Inductor => "H",
-                                TType::Diode => "V",
-                                TType::Zener => "V",
-                                TType::Measurement => "V",
-                                _ => "Result",
-                            })])
+                            .label(self.selected_test_results.0.unit())])
                         .coordinates_formatter(
                             egui_plot::Corner::RightTop,
                             egui_plot::CoordinatesFormatter::new(c_formater),

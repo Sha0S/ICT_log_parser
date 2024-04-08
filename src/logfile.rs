@@ -3,9 +3,9 @@
 
 use std::collections::HashSet;
 use std::ffi::OsString;
+use std::io;
 use std::ops::AddAssign;
 use std::path::{Path, PathBuf};
-use std::io;
 
 use chrono::NaiveDateTime;
 use umya_spreadsheet::{self, Worksheet};
@@ -115,6 +115,12 @@ pub enum TType {
     Inductor,
     Diode,
     Zener,
+    NFet,
+    PFet,
+    Npn,
+    Pnp,
+    Pot,
+    Switch,
     Testjet,
     Digital,
     Measurement,
@@ -131,13 +137,13 @@ impl From<keysight_log::AnalogTest> for TType {
             keysight_log::AnalogTest::Inductor => TType::Inductor,
             keysight_log::AnalogTest::Jumper => TType::Jumper,
             keysight_log::AnalogTest::Measurement => TType::Measurement,
-            keysight_log::AnalogTest::NFet => todo!(),
-            keysight_log::AnalogTest::PFet => todo!(),
-            keysight_log::AnalogTest::Npn => todo!(),
-            keysight_log::AnalogTest::Pnp => todo!(),
-            keysight_log::AnalogTest::Pot => todo!(),
+            keysight_log::AnalogTest::NFet => TType::NFet,
+            keysight_log::AnalogTest::PFet => TType::PFet,
+            keysight_log::AnalogTest::Npn => TType::Npn,
+            keysight_log::AnalogTest::Pnp => TType::Pnp,
+            keysight_log::AnalogTest::Pot => TType::Pot,
             keysight_log::AnalogTest::Res => TType::Resistor,
-            keysight_log::AnalogTest::Switch => todo!(),
+            keysight_log::AnalogTest::Switch => TType::Switch,
             keysight_log::AnalogTest::Zener => TType::Zener,
             keysight_log::AnalogTest::Error => TType::Unknown,
         }
@@ -161,6 +167,29 @@ impl TType {
             TType::Measurement => "Measurement".to_string(),
             TType::BoundaryS => "Boundary Scan".to_string(),
             TType::Unknown => "Unknown".to_string(),
+            TType::NFet => "N-FET".to_string(),
+            TType::PFet => "P-FET".to_string(),
+            TType::Npn => "NPN".to_string(),
+            TType::Pnp => "PNP".to_string(),
+            TType::Pot => "Pot".to_string(),
+            TType::Switch => "Switch".to_string(),
+        }
+    }
+
+    pub fn unit(&self) -> String {
+        match self {
+            TType::Pin | TType::Shorts => "Result".to_string(),
+            TType::Jumper | TType::Fuse | TType::Resistor => "Ω".to_string(),
+            TType::Capacitor => "F".to_string(),
+            TType::Inductor => "H".to_string(),
+            TType::Diode | TType::Zener => "V".to_string(),
+            TType::NFet | TType::PFet | TType::Npn | TType::Pnp => "V".to_string(),
+            TType::Pot | TType::Switch => "Ω".to_string(),
+            TType::Testjet => "Result".to_string(),
+            TType::Digital => "Result".to_string(),
+            TType::Measurement => "V".to_string(),
+            TType::BoundaryS => "Result".to_string(),
+            TType::Unknown => "Result".to_string(),
         }
     }
 }
@@ -387,7 +416,10 @@ impl LogFile {
                                             report.push(rpt.clone());
                                         }
                                         _ => {
-                                            println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                            println!(
+                                                "ERR: Unhandled subfield!\n\t{:?}",
+                                                subfield.data
+                                            )
                                         }
                                     }
                                 }
@@ -445,7 +477,10 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                    println!(
+                                                        "ERR: Unhandled subfield!\n\t{:?}",
+                                                        subfield.data
+                                                    )
                                                 }
                                             }
                                         }
@@ -477,7 +512,10 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                    println!(
+                                                        "ERR: Unhandled subfield!\n\t{:?}",
+                                                        subfield.data
+                                                    )
                                                 }
                                             }
                                         }
@@ -506,7 +544,10 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                    println!(
+                                                        "ERR: Unhandled subfield!\n\t{:?}",
+                                                        subfield.data
+                                                    )
                                                 }
                                             }
                                         }
@@ -534,7 +575,10 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                                    println!(
+                                                        "ERR: Unhandled subfield!\n\t{:?}",
+                                                        subfield.data
+                                                    )
                                                 }
                                             }
                                         }
@@ -575,7 +619,7 @@ impl LogFile {
                                 }
                             }
                         }
-                        
+
                         // Boundary exists in BLOCK and as a solo filed if it fails.
                         keysight_log::KeysightPrefix::Boundary(test_name, status, _, _) => {
                             // Subrecords: BS-O, BS-S - ToDo
