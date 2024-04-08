@@ -400,7 +400,7 @@ impl LogFile {
                                             TLimit::Lim3(nom, max, min)
                                         }
                                         _ => {
-                                            println!(
+                                            eprintln!(
                                                 "ERR: Analog test limit parsing error!\n\t{:?}",
                                                 lim.data
                                             );
@@ -416,7 +416,7 @@ impl LogFile {
                                             report.push(rpt.clone());
                                         }
                                         _ => {
-                                            println!(
+                                            eprintln!(
                                                 "ERR: Unhandled subfield!\n\t{:?}",
                                                 subfield.data
                                             )
@@ -431,7 +431,7 @@ impl LogFile {
                                     limits,
                                 })
                             } else {
-                                println!(
+                                eprintln!(
                                     "ERR: Analog test outside of a BLOCK and without name!\n\t{:?}",
                                     test.data
                                 );
@@ -464,7 +464,7 @@ impl LogFile {
                                                     min,
                                                 ) => TLimit::Lim3(nom, max, min),
                                                 _ => {
-                                                    println!("ERR: Analog test limit parsing error!\n\t{:?}", lim.data);
+                                                    eprintln!("ERR: Analog test limit parsing error!\n\t{:?}", lim.data);
                                                     TLimit::None
                                                 }
                                             },
@@ -477,7 +477,7 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!(
+                                                    eprintln!(
                                                         "ERR: Unhandled subfield!\n\t{:?}",
                                                         subfield.data
                                                     )
@@ -512,7 +512,7 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!(
+                                                    eprintln!(
                                                         "ERR: Unhandled subfield!\n\t{:?}",
                                                         subfield.data
                                                     )
@@ -544,7 +544,7 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!(
+                                                    eprintln!(
                                                         "ERR: Unhandled subfield!\n\t{:?}",
                                                         subfield.data
                                                     )
@@ -575,7 +575,7 @@ impl LogFile {
                                                     report.push(rpt.clone());
                                                 }
                                                 _ => {
-                                                    println!(
+                                                    eprintln!(
                                                         "ERR: Unhandled subfield!\n\t{:?}",
                                                         subfield.data
                                                     )
@@ -602,16 +602,16 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     keysight_log::KeysightPrefix::UserDefined(s) => {
-                                        println!(
+                                        eprintln!(
                                             "ERR: Not implemented USER DEFINED block!\n\t{:?}",
                                             s
                                         );
                                     }
                                     keysight_log::KeysightPrefix::Error(s) => {
-                                        println!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                                        eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
                                     }
                                     _ => {
-                                        println!(
+                                        eprintln!(
                                             "ERR: Found a invalid field nested in BLOCK!\n\t{:?}",
                                             sub_test.data
                                         );
@@ -630,7 +630,7 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     _ => {
-                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                                     }
                                 }
                             }
@@ -656,7 +656,7 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     _ => {
-                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                                     }
                                 }
                             }
@@ -680,7 +680,7 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     _ => {
-                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                                     }
                                 }
                             }
@@ -702,7 +702,7 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     _ => {
-                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                                     }
                                 }
                             }
@@ -732,7 +732,7 @@ impl LogFile {
                                         report.push(rpt.clone());
                                     }
                                     _ => {
-                                        println!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                                     }
                                 }
                             }
@@ -747,7 +747,7 @@ impl LogFile {
                         keysight_log::KeysightPrefix::UserDefined(s) => match s[0].as_str() {
                             "@Programming_time" => {
                                 if s.len() < 2 {
-                                    println!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                                    eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
                                     continue;
                                 }
 
@@ -760,24 +760,24 @@ impl LogFile {
                                             limits: TLimit::None,
                                         })
                                     } else {
-                                        println!(
+                                        eprintln!(
                                             "ERR: Parsing error at @Programming_time!\n\t{:?}",
                                             s
                                         );
                                     }
                                 } else {
-                                    println!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                                    eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
                                 }
                             }
                             _ => {
-                                println!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                                eprintln!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
                             }
                         },
                         keysight_log::KeysightPrefix::Error(s) => {
-                            println!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                            eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
                         }
                         _ => {
-                            println!(
+                            eprintln!(
                                 "ERR: Found a invalid field nested in BTEST!\n\t{:?}",
                                 test.data
                             );
