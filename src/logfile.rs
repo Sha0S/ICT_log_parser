@@ -310,11 +310,11 @@ impl LogFile {
         println!("INFO: Loading (v2) file {}", p.display());
         let source = p.as_os_str().to_owned();
 
-        let mut product_id = String::new();
+        let mut product_id = String::from("NoID");
         //let mut revision_id = String::new(); // ! New, needs to be implemented in the program
 
-        let mut DMC = String::new();
-        let mut DMC_mb = String::new();
+        let mut DMC = String::from("NoDMC");
+        let mut DMC_mb = String::from("NoMB");
         let mut index = 1;
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
@@ -334,6 +334,8 @@ impl LogFile {
         let mut status_code = 99;
 
         let tree = keysight_log::parse_file(p)?;
+        let mut batch_node: Option<&keysight_log::TreeNode> = None;
+        let mut btest_node: Option<&keysight_log::TreeNode> = None;
 
         if let Some(batch) = tree.last() {
             // {@BATCH|UUT type|UUT type rev|fixture id|testhead number|testhead type|process step|batch id|
@@ -357,41 +359,126 @@ impl LogFile {
             {
                 product_id = p_id.clone();
                 //revision_id = r_id.clone();
+                batch_node = Some(batch);
+            } else {
+                eprintln!("W: No BATCH field found!");
             }
+        }
 
-            if let Some(btest) = batch.branches.last() {
-                // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
-                // known good|end datetime|status qualifier|board number|parent panel id}
-                if let keysight_log::KeysightPrefix::BTest(
-                    b_id,
-                    b_status,
-                    t_start,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    t_end,
-                    _,
-                    b_index,
-                    mb_id,
-                ) = &btest.data
-                {
-                    DMC = b_id.clone();
-                    DMC_mb = mb_id.clone();
-                    status_code = *b_status;
-                    time_start = *t_start;
-                    time_end = *t_end;
-                    index = *b_index as usize;
+        if let Some(btest) = {
+            if let Some(x) = batch_node {
+                x.branches.last()
+            } else {
+                tree.last()
+            }
+        } {
+            // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
+            // known good|end datetime|status qualifier|board number|parent panel id}
+            if let keysight_log::KeysightPrefix::BTest(
+                b_id,
+                b_status,
+                t_start,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                t_end,
+                _,
+                b_index,
+                mb_id,
+            ) = &btest.data
+            {
+                DMC = b_id.clone();
+
+                if let Some(mb) = mb_id {
+                    DMC_mb = mb.clone();
+                } else {
+                    DMC_mb = DMC.clone();
                 }
+                
+                status_code = *b_status;
+                time_start = *t_start;
+                time_end = *t_end;
+                index = *b_index as usize;
+                btest_node = Some(btest);
+            } else {
+                eprintln!("W: No BTEST field found!");
+            }
+        }
 
-                for test in &btest.branches {
-                    match &test.data {
-                        // I haven't encountered any analog fields outside of a BLOCK, so this might be not needed.
-                        keysight_log::KeysightPrefix::Analog(analog, status, result, sub_name) => {
-                            if let Some(name) = sub_name {
-                                let limits = match test.branches.first() {
+        let test_nodes = if let Some(x) = btest_node {
+            &x.branches
+        } else {
+            &tree
+        };
+
+        for test in test_nodes {
+            match &test.data {
+                // I haven't encountered any analog fields outside of a BLOCK, so this might be not needed.
+                keysight_log::KeysightPrefix::Analog(analog, status, result, sub_name) => {
+                    if let Some(name) = sub_name {
+                        let limits = match test.branches.first() {
+                            Some(lim) => match lim.data {
+                                keysight_log::KeysightPrefix::Lim2(max, min) => {
+                                    TLimit::Lim2(max, min)
+                                }
+                                keysight_log::KeysightPrefix::Lim3(nom, max, min) => {
+                                    TLimit::Lim3(nom, max, min)
+                                }
+                                _ => {
+                                    eprintln!(
+                                        "ERR: Analog test limit parsing error!\n\t{:?}",
+                                        lim.data
+                                    );
+                                    TLimit::None
+                                }
+                            },
+                            None => TLimit::None,
+                        };
+
+                        for subfield in test.branches.iter().skip(1) {
+                            match &subfield.data {
+                                keysight_log::KeysightPrefix::Report(rpt) => {
+                                    report.push(rpt.clone());
+                                }
+                                _ => {
+                                    eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                                }
+                            }
+                        }
+
+                        tests.push(Test {
+                            name: strip_index(name).to_string(),
+                            ttype: TType::from(*analog),
+                            result: (BResult::from(*status), *result),
+                            limits,
+                        })
+                    } else {
+                        eprintln!(
+                            "ERR: Analog test outside of a BLOCK and without name!\n\t{:?}",
+                            test.data
+                        );
+                    }
+                }
+                keysight_log::KeysightPrefix::AlarmId(_, _) => todo!(),
+                keysight_log::KeysightPrefix::Alarm(_, _, _, _, _, _, _, _, _) => todo!(),
+                keysight_log::KeysightPrefix::Array(_, _, _, _) => todo!(),
+                keysight_log::KeysightPrefix::Block(b_name, _) => {
+                    let block_name = strip_index(b_name).to_string();
+                    let mut digital_tp: Option<usize> = None;
+                    let mut boundary_tp: Option<usize> = None;
+
+                    for sub_test in &test.branches {
+                        match &sub_test.data {
+                            keysight_log::KeysightPrefix::Analog(
+                                analog,
+                                status,
+                                result,
+                                sub_name,
+                            ) => {
+                                let limits = match sub_test.branches.first() {
                                     Some(lim) => match lim.data {
                                         keysight_log::KeysightPrefix::Lim2(max, min) => {
                                             TLimit::Lim2(max, min)
@@ -410,7 +497,7 @@ impl LogFile {
                                     None => TLimit::None,
                                 };
 
-                                for subfield in test.branches.iter().skip(1) {
+                                for subfield in sub_test.branches.iter().skip(1) {
                                     match &subfield.data {
                                         keysight_log::KeysightPrefix::Report(rpt) => {
                                             report.push(rpt.clone());
@@ -424,365 +511,282 @@ impl LogFile {
                                     }
                                 }
 
+                                let mut name = block_name.clone();
+                                if let Some(sn) = &sub_name {
+                                    name = format!("{}%{}", name, sn);
+                                }
+
                                 tests.push(Test {
-                                    name: strip_index(name).to_string(),
+                                    name,
                                     ttype: TType::from(*analog),
                                     result: (BResult::from(*status), *result),
                                     limits,
                                 })
-                            } else {
+                            }
+                            keysight_log::KeysightPrefix::Digital(status, _, _, _, sub_name) => {
+                                // subrecords: DPIN - ToDo!
+
+                                for subfield in sub_test.branches.iter() {
+                                    match &subfield.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        _ => {
+                                            eprintln!(
+                                                "ERR: Unhandled subfield!\n\t{:?}",
+                                                subfield.data
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if let Some(dt) = digital_tp {
+                                    if *status != 0 {
+                                        tests[dt].result = (BResult::from(*status), *status as f32);
+                                    }
+                                } else {
+                                    digital_tp = Some(tests.len());
+                                    tests.push(Test {
+                                        name: strip_index(sub_name).to_string(),
+                                        ttype: TType::Digital,
+                                        result: (BResult::from(*status), *status as f32),
+                                        limits: TLimit::None,
+                                    });
+                                }
+                            }
+                            keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
+                                // subrecords: DPIN - ToDo!
+
+                                for subfield in sub_test.branches.iter() {
+                                    match &subfield.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        _ => {
+                                            eprintln!(
+                                                "ERR: Unhandled subfield!\n\t{:?}",
+                                                subfield.data
+                                            )
+                                        }
+                                    }
+                                }
+
+                                let name = format!("{}%{}", block_name, strip_index(sub_name));
+                                tests.push(Test {
+                                    name,
+                                    ttype: TType::Testjet,
+                                    result: (BResult::from(*status), *status as f32),
+                                    limits: TLimit::None,
+                                })
+                            }
+                            keysight_log::KeysightPrefix::Boundary(sub_name, status, _, _) => {
+                                // Subrecords: BS-O, BS-S - ToDo
+
+                                for subfield in sub_test.branches.iter() {
+                                    match &subfield.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        _ => {
+                                            eprintln!(
+                                                "ERR: Unhandled subfield!\n\t{:?}",
+                                                subfield.data
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if let Some(dt) = boundary_tp {
+                                    if *status != 0 {
+                                        tests[dt].result = (BResult::from(*status), *status as f32);
+                                    }
+                                } else {
+                                    boundary_tp = Some(tests.len());
+                                    tests.push(Test {
+                                        name: strip_index(sub_name).to_string(),
+                                        ttype: TType::BoundaryS,
+                                        result: (BResult::from(*status), *status as f32),
+                                        limits: TLimit::None,
+                                    })
+                                }
+                            }
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
+                            }
+                            keysight_log::KeysightPrefix::UserDefined(s) => {
+                                eprintln!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                            }
+                            keysight_log::KeysightPrefix::Error(s) => {
+                                eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                            }
+                            _ => {
                                 eprintln!(
-                                    "ERR: Analog test outside of a BLOCK and without name!\n\t{:?}",
-                                    test.data
+                                    "ERR: Found a invalid field nested in BLOCK!\n\t{:?}",
+                                    sub_test.data
                                 );
                             }
                         }
-                        keysight_log::KeysightPrefix::AlarmId(_, _) => todo!(),
-                        keysight_log::KeysightPrefix::Alarm(_, _, _, _, _, _, _, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::Array(_, _, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::Block(b_name, _) => {
-                            let block_name = strip_index(b_name).to_string();
-                            let mut digital_tp: Option<usize> = None;
-                            let mut boundary_tp: Option<usize> = None;
+                    }
+                }
 
-                            for sub_test in &test.branches {
-                                match &sub_test.data {
-                                    keysight_log::KeysightPrefix::Analog(
-                                        analog,
-                                        status,
-                                        result,
-                                        sub_name,
-                                    ) => {
-                                        let limits = match sub_test.branches.first() {
-                                            Some(lim) => match lim.data {
-                                                keysight_log::KeysightPrefix::Lim2(max, min) => {
-                                                    TLimit::Lim2(max, min)
-                                                }
-                                                keysight_log::KeysightPrefix::Lim3(
-                                                    nom,
-                                                    max,
-                                                    min,
-                                                ) => TLimit::Lim3(nom, max, min),
-                                                _ => {
-                                                    eprintln!("ERR: Analog test limit parsing error!\n\t{:?}", lim.data);
-                                                    TLimit::None
-                                                }
-                                            },
-                                            None => TLimit::None,
-                                        };
+                // Boundary exists in BLOCK and as a solo filed if it fails.
+                keysight_log::KeysightPrefix::Boundary(test_name, status, _, _) => {
+                    // Subrecords: BS-O, BS-S - ToDo
 
-                                        for subfield in sub_test.branches.iter().skip(1) {
-                                            match &subfield.data {
-                                                keysight_log::KeysightPrefix::Report(rpt) => {
-                                                    report.push(rpt.clone());
-                                                }
-                                                _ => {
-                                                    eprintln!(
-                                                        "ERR: Unhandled subfield!\n\t{:?}",
-                                                        subfield.data
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        let mut name = block_name.clone();
-                                        if let Some(sn) = &sub_name {
-                                            name = format!("{}%{}", name, sn);
-                                        }
-
-                                        tests.push(Test {
-                                            name,
-                                            ttype: TType::from(*analog),
-                                            result: (BResult::from(*status), *result),
-                                            limits,
-                                        })
-                                    }
-                                    keysight_log::KeysightPrefix::Digital(
-                                        status,
-                                        _,
-                                        _,
-                                        _,
-                                        sub_name,
-                                    ) => {
-                                        // subrecords: DPIN - ToDo!
-
-                                        for subfield in sub_test.branches.iter() {
-                                            match &subfield.data {
-                                                keysight_log::KeysightPrefix::Report(rpt) => {
-                                                    report.push(rpt.clone());
-                                                }
-                                                _ => {
-                                                    eprintln!(
-                                                        "ERR: Unhandled subfield!\n\t{:?}",
-                                                        subfield.data
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        if let Some(dt) = digital_tp {
-                                            if *status != 0 {
-                                                tests[dt].result =
-                                                    (BResult::from(*status), *status as f32);
-                                            }
-                                        } else {
-                                            digital_tp = Some(tests.len());
-                                            tests.push(Test {
-                                                name: strip_index(sub_name).to_string(),
-                                                ttype: TType::Digital,
-                                                result: (BResult::from(*status), *status as f32),
-                                                limits: TLimit::None,
-                                            });
-                                        }
-                                    }
-                                    keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
-                                        // subrecords: DPIN - ToDo!
-
-                                        for subfield in sub_test.branches.iter() {
-                                            match &subfield.data {
-                                                keysight_log::KeysightPrefix::Report(rpt) => {
-                                                    report.push(rpt.clone());
-                                                }
-                                                _ => {
-                                                    eprintln!(
-                                                        "ERR: Unhandled subfield!\n\t{:?}",
-                                                        subfield.data
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        let name =
-                                            format!("{}%{}", block_name, strip_index(sub_name));
-                                        tests.push(Test {
-                                            name,
-                                            ttype: TType::Testjet,
-                                            result: (BResult::from(*status), *status as f32),
-                                            limits: TLimit::None,
-                                        })
-                                    }
-                                    keysight_log::KeysightPrefix::Boundary(
-                                        sub_name,
-                                        status,
-                                        _,
-                                        _,
-                                    ) => {
-                                        // Subrecords: BS-O, BS-S - ToDo
-
-                                        for subfield in sub_test.branches.iter() {
-                                            match &subfield.data {
-                                                keysight_log::KeysightPrefix::Report(rpt) => {
-                                                    report.push(rpt.clone());
-                                                }
-                                                _ => {
-                                                    eprintln!(
-                                                        "ERR: Unhandled subfield!\n\t{:?}",
-                                                        subfield.data
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        if let Some(dt) = boundary_tp {
-                                            if *status != 0 {
-                                                tests[dt].result =
-                                                    (BResult::from(*status), *status as f32);
-                                            }
-                                        } else {
-                                            boundary_tp = Some(tests.len());
-                                            tests.push(Test {
-                                                name: strip_index(sub_name).to_string(),
-                                                ttype: TType::BoundaryS,
-                                                result: (BResult::from(*status), *status as f32),
-                                                limits: TLimit::None,
-                                            })
-                                        }
-                                    }
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    keysight_log::KeysightPrefix::UserDefined(s) => {
-                                        eprintln!(
-                                            "ERR: Not implemented USER DEFINED block!\n\t{:?}",
-                                            s
-                                        );
-                                    }
-                                    keysight_log::KeysightPrefix::Error(s) => {
-                                        eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
-                                    }
-                                    _ => {
-                                        eprintln!(
-                                            "ERR: Found a invalid field nested in BLOCK!\n\t{:?}",
-                                            sub_test.data
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        // Boundary exists in BLOCK and as a solo filed if it fails.
-                        keysight_log::KeysightPrefix::Boundary(test_name, status, _, _) => {
-                            // Subrecords: BS-O, BS-S - ToDo
-
-                            for subfield in test.branches.iter() {
-                                match &subfield.data {
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    _ => {
-                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
-                                    }
-                                }
-                            }
-
-                            tests.push(Test {
-                                name: strip_index(test_name).to_string(),
-                                ttype: TType::BoundaryS,
-                                result: (BResult::from(*status), *status as f32),
-                                limits: TLimit::None,
-                            })
-                        }
-                        keysight_log::KeysightPrefix::CChk(_, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::DPld(_, _, _, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::Export(_, _) => todo!(),
-                        keysight_log::KeysightPrefix::Note(_, _) => todo!(),
-
-                        // Digital tests can be present as a BLOCK member, or solo.
-                        keysight_log::KeysightPrefix::Digital(status, _, _, _, test_name) => {
-                            // subrecords: DPIN - ToDo!
-                            for subfield in test.branches.iter() {
-                                match &subfield.data {
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    _ => {
-                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
-                                    }
-                                }
-                            }
-
-                            tests.push(Test {
-                                name: strip_index(test_name).to_string(),
-                                ttype: TType::Digital,
-                                result: (BResult::from(*status), *status as f32),
-                                limits: TLimit::None,
-                            })
-                        }
-                        keysight_log::KeysightPrefix::Indict(_, _) => todo!(),
-                        keysight_log::KeysightPrefix::NetV(_, _, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::Node(_) => todo!(),
-                        keysight_log::KeysightPrefix::PChk(_, _) => todo!(),
-                        keysight_log::KeysightPrefix::Pins(_, status, _) => {
-                            // Subrecord: Pin - ToDo
-                            for subfield in test.branches.iter() {
-                                match &subfield.data {
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    _ => {
-                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
-                                    }
-                                }
-                            }
-
-                            tests[0].result = (BResult::from(*status), *status as f32);
-                        }
-                        keysight_log::KeysightPrefix::Prb(_, _, _) => todo!(),
-                        keysight_log::KeysightPrefix::Retest(_) => todo!(),
-                        keysight_log::KeysightPrefix::Report(rpt) => {
-                            report.push(rpt.clone());
-                        }
-
-                        // I haven't encountered any testjet fields outside of a BLOCK, so this might be not needed.
-                        keysight_log::KeysightPrefix::TJet(status, _, test_name) => {
-                            // subrecords: DPIN - ToDo!
-                            for subfield in test.branches.iter() {
-                                match &subfield.data {
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    _ => {
-                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
-                                    }
-                                }
-                            }
-
-                            tests.push(Test {
-                                name: strip_index(test_name).to_string(),
-                                ttype: TType::Testjet,
-                                result: (BResult::from(*status), *status as f32),
-                                limits: TLimit::None,
-                            })
-                        }
-                        keysight_log::KeysightPrefix::Shorts(mut status, s1, s2, s3, _) => {
-                            //keysight_log::KeysightPrefix::ShortsSrc(_, _, _) => todo!(),
-                            //keysight_log::KeysightPrefix::ShortsDest(_) => todo!(),
-                            //keysight_log::KeysightPrefix::ShortsPhantom(_) => todo!(),
-                            //keysight_log::KeysightPrefix::ShortsOpen(_, _, _) => todo!(),
-
-                            // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
-                            // So we check the next 3 fields too, they all have to be '000'
-                            if *s1 > 0 || *s2 > 0 || *s3 > 0 {
-                                status = 1;
-                            }
-
-                            for subfield in test.branches.iter() {
-                                match &subfield.data {
-                                    keysight_log::KeysightPrefix::Report(rpt) => {
-                                        report.push(rpt.clone());
-                                    }
-                                    _ => {
-                                        eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
-                                    }
-                                }
-                            }
-
-                            tests.push(Test {
-                                name: String::from("shorts"),
-                                ttype: TType::Shorts,
-                                result: (BResult::from(status), status as f32),
-                                limits: TLimit::None,
-                            })
-                        }
-                        keysight_log::KeysightPrefix::UserDefined(s) => match s[0].as_str() {
-                            "@Programming_time" => {
-                                if s.len() < 2 {
-                                    eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
-                                    continue;
-                                }
-
-                                if let Some(t) = s[1].strip_suffix("msec") {
-                                    if let Ok(ts) = t.parse::<i32>() {
-                                        tests.push(Test {
-                                            name: String::from("Programming_time"),
-                                            ttype: TType::Unknown,
-                                            result: (BResult::Pass, ts as f32 / 1000.0),
-                                            limits: TLimit::None,
-                                        })
-                                    } else {
-                                        eprintln!(
-                                            "ERR: Parsing error at @Programming_time!\n\t{:?}",
-                                            s
-                                        );
-                                    }
-                                } else {
-                                    eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
-                                }
+                    for subfield in test.branches.iter() {
+                        match &subfield.data {
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
                             }
                             _ => {
-                                eprintln!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                                eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
                             }
-                        },
-                        keysight_log::KeysightPrefix::Error(s) => {
-                            eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
-                        }
-                        _ => {
-                            eprintln!(
-                                "ERR: Found a invalid field nested in BTEST!\n\t{:?}",
-                                test.data
-                            );
                         }
                     }
+
+                    tests.push(Test {
+                        name: strip_index(test_name).to_string(),
+                        ttype: TType::BoundaryS,
+                        result: (BResult::from(*status), *status as f32),
+                        limits: TLimit::None,
+                    })
+                }
+                keysight_log::KeysightPrefix::CChk(_, _, _) => todo!(),
+                keysight_log::KeysightPrefix::DPld(_, _, _, _, _) => todo!(),
+                keysight_log::KeysightPrefix::Export(_, _) => todo!(),
+                keysight_log::KeysightPrefix::Note(_, _) => todo!(),
+
+                // Digital tests can be present as a BLOCK member, or solo.
+                keysight_log::KeysightPrefix::Digital(status, _, _, _, test_name) => {
+                    // subrecords: DPIN - ToDo!
+                    for subfield in test.branches.iter() {
+                        match &subfield.data {
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
+                            }
+                            _ => {
+                                eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                            }
+                        }
+                    }
+
+                    tests.push(Test {
+                        name: strip_index(test_name).to_string(),
+                        ttype: TType::Digital,
+                        result: (BResult::from(*status), *status as f32),
+                        limits: TLimit::None,
+                    })
+                }
+                keysight_log::KeysightPrefix::Indict(_, _) => todo!(),
+                keysight_log::KeysightPrefix::NetV(_, _, _, _) => todo!(),
+                keysight_log::KeysightPrefix::Node(_) => todo!(),
+                keysight_log::KeysightPrefix::PChk(_, _) => todo!(),
+                keysight_log::KeysightPrefix::Pins(_, status, _) => {
+                    // Subrecord: Pin - ToDo
+                    for subfield in test.branches.iter() {
+                        match &subfield.data {
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
+                            }
+                            _ => {
+                                eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                            }
+                        }
+                    }
+
+                    tests[0].result = (BResult::from(*status), *status as f32);
+                }
+                keysight_log::KeysightPrefix::Prb(_, _, _) => todo!(),
+                keysight_log::KeysightPrefix::Retest(_) => todo!(),
+                keysight_log::KeysightPrefix::Report(rpt) => {
+                    report.push(rpt.clone());
+                }
+
+                // I haven't encountered any testjet fields outside of a BLOCK, so this might be not needed.
+                keysight_log::KeysightPrefix::TJet(status, _, test_name) => {
+                    // subrecords: DPIN - ToDo!
+                    for subfield in test.branches.iter() {
+                        match &subfield.data {
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
+                            }
+                            _ => {
+                                eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                            }
+                        }
+                    }
+
+                    tests.push(Test {
+                        name: strip_index(test_name).to_string(),
+                        ttype: TType::Testjet,
+                        result: (BResult::from(*status), *status as f32),
+                        limits: TLimit::None,
+                    })
+                }
+                keysight_log::KeysightPrefix::Shorts(mut status, s1, s2, s3, _) => {
+                    //keysight_log::KeysightPrefix::ShortsSrc(_, _, _) => todo!(),
+                    //keysight_log::KeysightPrefix::ShortsDest(_) => todo!(),
+                    //keysight_log::KeysightPrefix::ShortsPhantom(_) => todo!(),
+                    //keysight_log::KeysightPrefix::ShortsOpen(_, _, _) => todo!(),
+
+                    // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
+                    // So we check the next 3 fields too, they all have to be '000'
+                    if *s1 > 0 || *s2 > 0 || *s3 > 0 {
+                        status = 1;
+                    }
+
+                    for subfield in test.branches.iter() {
+                        match &subfield.data {
+                            keysight_log::KeysightPrefix::Report(rpt) => {
+                                report.push(rpt.clone());
+                            }
+                            _ => {
+                                eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
+                            }
+                        }
+                    }
+
+                    tests.push(Test {
+                        name: String::from("shorts"),
+                        ttype: TType::Shorts,
+                        result: (BResult::from(status), status as f32),
+                        limits: TLimit::None,
+                    })
+                }
+                keysight_log::KeysightPrefix::UserDefined(s) => match s[0].as_str() {
+                    "@Programming_time" => {
+                        if s.len() < 2 {
+                            eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                            continue;
+                        }
+
+                        if let Some(t) = s[1].strip_suffix("msec") {
+                            if let Ok(ts) = t.parse::<i32>() {
+                                tests.push(Test {
+                                    name: String::from("Programming_time"),
+                                    ttype: TType::Unknown,
+                                    result: (BResult::Pass, ts as f32 / 1000.0),
+                                    limits: TLimit::None,
+                                })
+                            } else {
+                                eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                            }
+                        } else {
+                            eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
+                        }
+                    }
+                    _ => {
+                        eprintln!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
+                    }
+                },
+                keysight_log::KeysightPrefix::Error(s) => {
+                    eprintln!("ERR: KeysightPrefix::Error found!\n\t{:?}", s);
+                }
+                _ => {
+                    eprintln!(
+                        "ERR: Found a invalid field nested in BTEST!\n\t{:?}",
+                        test.data
+                    );
                 }
             }
         }
