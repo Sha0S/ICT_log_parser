@@ -143,7 +143,7 @@ pub enum KeysightPrefix {
         u64,
         String,
         i32,
-        String,
+        Option<String>,
     ),
 
     // {@CCHK|test status|pin count|test designator}
@@ -425,7 +425,7 @@ impl KeysightPrefix {
                 }
 
                 // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
-                // known good|end datetime|status qualifier|board number|parent panel id}
+                // known good|end datetime|status qualifier|board number(|parent panel id)}
                 "@BTEST" => {
                     if data.len() < 14 {
                         return Err(ParsingError);
@@ -444,7 +444,7 @@ impl KeysightPrefix {
                         to_uint(data.get(10))?,
                         get_string(&data, 11).unwrap(),
                         to_int(data.get(12))?,
-                        get_string(&data, 13).unwrap(),
+                        get_string(&data, 13),
                     ))
                 }
 
