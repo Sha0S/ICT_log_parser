@@ -7,7 +7,7 @@ use std::io;
 use std::ops::AddAssign;
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime, Timelike};
 use umya_spreadsheet::{self, Worksheet};
 
 mod keysight_log;
@@ -49,6 +49,15 @@ pub fn u64_to_string(mut x: u64) -> String {
         "{:02.0}.{:02.0}.{:02.0} {:02.0}:{:02.0}:{:02.0}",
         YY, MM, DD, hh, mm, x
     )
+}
+
+fn local_time_to_u64( t: chrono::DateTime<chrono::Local>) -> u64 {
+    (t.year() as u64 - 2000)* u64::pow(10, 10) + 
+    t.month() as u64 * u64::pow(10, 8) +
+    t.day() as u64 * u64::pow(10, 6) +
+    t.hour() as u64 * u64::pow(10, 4) +
+    t.minute() as u64 * u64::pow(10, 2) +
+    t.second() as u64
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -804,6 +813,16 @@ impl LogFile {
                 result: (BResult::Fail, 0.0),
                 limits: TLimit::None,
             });
+        }
+
+        if time_start == 0 {
+            if let Ok(x) = p.metadata() {
+                time_start = local_time_to_u64(x.modified().unwrap().into());
+            }
+        }
+
+        if time_end == 0 {
+            time_end = time_start;
         }
 
         Ok(LogFile {
