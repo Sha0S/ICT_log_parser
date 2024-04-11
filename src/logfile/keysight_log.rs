@@ -427,7 +427,7 @@ impl KeysightPrefix {
                 // {@BTEST|board id|test status|start datetime|duration|multiple test|log level|log set|learning|
                 // known good|end datetime|status qualifier|board number(|parent panel id)}
                 "@BTEST" => {
-                    if data.len() < 14 {
+                    if data.len() < 13 {
                         return Err(ParsingError);
                     }
 
