@@ -315,7 +315,7 @@ impl LogFile {
 
         let mut DMC = String::new();
         let mut DMC_mb = String::new();
-        let mut index = 0;
+        let mut index = 1;
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
 
