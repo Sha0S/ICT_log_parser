@@ -51,13 +51,13 @@ pub fn u64_to_string(mut x: u64) -> String {
     )
 }
 
-fn local_time_to_u64( t: chrono::DateTime<chrono::Local>) -> u64 {
-    (t.year() as u64 - 2000)* u64::pow(10, 10) + 
-    t.month() as u64 * u64::pow(10, 8) +
-    t.day() as u64 * u64::pow(10, 6) +
-    t.hour() as u64 * u64::pow(10, 4) +
-    t.minute() as u64 * u64::pow(10, 2) +
-    t.second() as u64
+fn local_time_to_u64(t: chrono::DateTime<chrono::Local>) -> u64 {
+    (t.year() as u64 - 2000) * u64::pow(10, 10)
+        + t.month() as u64 * u64::pow(10, 8)
+        + t.day() as u64 * u64::pow(10, 6)
+        + t.hour() as u64 * u64::pow(10, 4)
+        + t.minute() as u64 * u64::pow(10, 2)
+        + t.second() as u64
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -330,6 +330,8 @@ impl LogFile {
 
         let mut tests: Vec<Test> = Vec::new();
         let mut report: Vec<String> = Vec::new();
+        let mut failed_nodes: Vec<String> = Vec::new();
+        let mut failed_pins: Vec<String> = Vec::new();
 
         // pre-populate pins test
         tests.push(Test {
@@ -406,7 +408,7 @@ impl LogFile {
                 } else {
                     DMC_mb = DMC.clone();
                 }
-                
+
                 status_code = *b_status;
                 time_start = *t_start;
                 time_end = *t_end;
@@ -564,12 +566,15 @@ impl LogFile {
                                 }
                             }
                             keysight_log::KeysightPrefix::TJet(status, _, sub_name) => {
-                                // subrecords: DPIN - ToDo!
-
                                 for subfield in sub_test.branches.iter() {
                                     match &subfield.data {
                                         keysight_log::KeysightPrefix::Report(rpt) => {
                                             report.push(rpt.clone());
+                                        }
+                                        keysight_log::KeysightPrefix::DPin(_, pins) => {
+                                            let mut tmp: Vec<String> =
+                                                pins.iter().map(|f| f.0.clone()).collect();
+                                            failed_nodes.append(&mut tmp);
                                         }
                                         _ => {
                                             eprintln!(
@@ -660,16 +665,16 @@ impl LogFile {
                         limits: TLimit::None,
                     })
                 }
-                keysight_log::KeysightPrefix::CChk(_, _, _) => todo!(),
-                keysight_log::KeysightPrefix::DPld(_, _, _, _, _) => todo!(),
-                keysight_log::KeysightPrefix::Export(_, _) => todo!(),
-                keysight_log::KeysightPrefix::Note(_, _) => todo!(),
 
                 // Digital tests can be present as a BLOCK member, or solo.
                 keysight_log::KeysightPrefix::Digital(status, _, _, _, test_name) => {
-                    // subrecords: DPIN - ToDo!
                     for subfield in test.branches.iter() {
                         match &subfield.data {
+                            keysight_log::KeysightPrefix::DPin(_, pins) => {
+                                let mut tmp: Vec<String> =
+                                    pins.iter().map(|f| f.0.clone()).collect();
+                                failed_nodes.append(&mut tmp);
+                            }
                             keysight_log::KeysightPrefix::Report(rpt) => {
                                 report.push(rpt.clone());
                             }
@@ -686,16 +691,15 @@ impl LogFile {
                         limits: TLimit::None,
                     })
                 }
-                keysight_log::KeysightPrefix::Indict(_, _) => todo!(),
-                keysight_log::KeysightPrefix::NetV(_, _, _, _) => todo!(),
-                keysight_log::KeysightPrefix::Node(_) => todo!(),
-                keysight_log::KeysightPrefix::PChk(_, _) => todo!(),
                 keysight_log::KeysightPrefix::Pins(_, status, _) => {
                     // Subrecord: Pin - ToDo
                     for subfield in test.branches.iter() {
                         match &subfield.data {
                             keysight_log::KeysightPrefix::Report(rpt) => {
                                 report.push(rpt.clone());
+                            }
+                            keysight_log::KeysightPrefix::Pin(pin) => {
+                                failed_pins.append(&mut pin.clone());
                             }
                             _ => {
                                 eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
@@ -705,8 +709,6 @@ impl LogFile {
 
                     tests[0].result = (BResult::from(*status), *status as f32);
                 }
-                keysight_log::KeysightPrefix::Prb(_, _, _) => todo!(),
-                keysight_log::KeysightPrefix::Retest(_) => todo!(),
                 keysight_log::KeysightPrefix::Report(rpt) => {
                     report.push(rpt.clone());
                 }
@@ -733,11 +735,6 @@ impl LogFile {
                     })
                 }
                 keysight_log::KeysightPrefix::Shorts(mut status, s1, s2, s3, _) => {
-                    //keysight_log::KeysightPrefix::ShortsSrc(_, _, _) => todo!(),
-                    //keysight_log::KeysightPrefix::ShortsDest(_) => todo!(),
-                    //keysight_log::KeysightPrefix::ShortsPhantom(_) => todo!(),
-                    //keysight_log::KeysightPrefix::ShortsOpen(_, _, _) => todo!(),
-
                     // Sometimes, failed shorts tests are marked as passed at the 'test status' field.
                     // So we check the next 3 fields too, they all have to be '000'
                     if *s1 > 0 || *s2 > 0 || *s3 > 0 {
@@ -748,6 +745,39 @@ impl LogFile {
                         match &subfield.data {
                             keysight_log::KeysightPrefix::Report(rpt) => {
                                 report.push(rpt.clone());
+                            }
+                            keysight_log::KeysightPrefix::ShortsSrc(_, _, node) => {
+                                failed_nodes.push(node.clone());
+                                for sub2 in &subfield.branches {
+                                    match &sub2.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        keysight_log::KeysightPrefix::ShortsDest(dst) => {
+                                            let mut tmp: Vec<String> =
+                                                dst.iter().map(|d| d.0.clone()).collect();
+                                            failed_nodes.append(&mut tmp);
+                                        }
+                                        _ => {
+                                            eprintln!("ERR: Unhandled subfield!\n\t{:?}", sub2.data)
+                                        }
+                                    }
+                                }
+                            }
+                            keysight_log::KeysightPrefix::ShortsOpen(src, dst, _) => {
+                                failed_nodes.push(src.clone());
+                                failed_nodes.push(dst.clone());
+
+                                for sub2 in &subfield.branches {
+                                    match &sub2.data {
+                                        keysight_log::KeysightPrefix::Report(rpt) => {
+                                            report.push(rpt.clone());
+                                        }
+                                        _ => {
+                                            eprintln!("ERR: Unhandled subfield!\n\t{:?}", sub2.data)
+                                        }
+                                    }
+                                }
                             }
                             _ => {
                                 eprintln!("ERR: Unhandled subfield!\n\t{:?}", subfield.data)
