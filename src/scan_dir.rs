@@ -25,11 +25,13 @@ fn get_board_directories() -> Result<Vec<PathBuf>, std::io::Error> {
     Ok(ret)
 }
 
+type FileStats = (PathBuf, DateTime<Local>, DateTime<Local>);
+
 fn get_changed_files(
     root: &PathBuf,
     time_limit: Duration,
-) -> Result<Vec<(PathBuf, DateTime<Local>)>, std::io::Error> {
-    let mut ret: Vec<(PathBuf, DateTime<Local>)> = Vec::new();
+) -> Result<Vec<FileStats>, std::io::Error> {
+    let mut ret: Vec<FileStats> = Vec::new();
 
     for dir in fs::read_dir(root)? {
         let dir = dir?;
@@ -38,8 +40,9 @@ fn get_changed_files(
             ret.append(&mut get_changed_files(&path, time_limit)?);
         } else if let Ok(x) = path.metadata() {
             let modified: DateTime<Local> = x.modified().unwrap().into();
-            if Local::now() - modified < time_limit {
-                ret.push((path, modified));
+            let created: DateTime<Local> = x.created().unwrap().into();
+            if Local::now() - modified < time_limit || Local::now() - created < time_limit{
+                ret.push((path, created, modified));
             }
         }
     }
@@ -49,7 +52,7 @@ fn get_changed_files(
 
 struct ScannedDir {
     dir: PathBuf,
-    changed_files: Vec<(PathBuf, DateTime<Local>)>,
+    changed_files: Vec<FileStats>,
 }
 pub struct ScanDirWindow {
     enabled: bool,
@@ -149,6 +152,7 @@ impl ScanDirWindow {
                                         ui.add_space(50.0);
                                         ui.label(format!("{}", file.0.display()));
                                         ui.label(format!("{}", file.1.format("%F %R")));
+                                        ui.label(format!("{}", file.2.format("%F %R")));
                                         ui.end_row();
                                     }
                                 }
