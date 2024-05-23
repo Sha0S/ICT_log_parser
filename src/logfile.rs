@@ -133,6 +133,7 @@ pub enum TType {
     Testjet,
     Digital,
     Measurement,
+    Current,
     BoundaryS,
     Unknown,
 }
@@ -174,6 +175,7 @@ impl TType {
             TType::Testjet => "Testjet".to_string(),
             TType::Digital => "Digital".to_string(),
             TType::Measurement => "Measurement".to_string(),
+            TType::Current => "Current".to_string(),
             TType::BoundaryS => "Boundary Scan".to_string(),
             TType::Unknown => "Unknown".to_string(),
             TType::NFet => "N-FET".to_string(),
@@ -197,6 +199,7 @@ impl TType {
             TType::Testjet => "Result".to_string(),
             TType::Digital => "Result".to_string(),
             TType::Measurement => "V".to_string(),
+            TType::Current => "A".to_string(),
             TType::BoundaryS => "Result".to_string(),
             TType::Unknown => "Result".to_string(),
         }
@@ -327,6 +330,7 @@ impl LogFile {
         let mut index = 1;
         let mut time_start: u64 = 0;
         let mut time_end: u64 = 0;
+        let mut status_code = 0;
 
         let mut tests: Vec<Test> = Vec::new();
         let mut report: Vec<String> = Vec::new();
@@ -342,7 +346,9 @@ impl LogFile {
         });
         //
 
-        let mut status_code = 0;
+        // Variables for user defined blocks:
+        let mut PS_counter = 0;
+        //        
 
         let tree = keysight_log::parse_file(p)?;
         let mut batch_node: Option<&keysight_log::TreeNode> = None;
@@ -813,6 +819,54 @@ impl LogFile {
                         } else {
                             eprintln!("ERR: Parsing error at @Programming_time!\n\t{:?}", s);
                         }
+                    }
+                    "@PS_info" => {
+                        if s.len() < 3 {
+                            eprintln!("ERR: Parsing error at @PS_info!\n\t{:?}", s);
+                            continue;
+                        }
+
+                        let voltage;
+                        let current;
+
+                        if let Some(t) = s[1].strip_suffix('V') {
+                            if let Ok(ts) = t.parse::<f32>() {
+                                voltage = ts;
+                            } else {
+                                eprintln!("ERR: Parsing error at @PS_info!\n\t{:?}", s);
+                                continue;
+                            }
+                        } else {
+                            eprintln!("ERR: Parsing error at @PS_info!\n\t{:?}", s);
+                            continue;
+                        }
+
+                        if let Some(t) = s[2].strip_suffix('A') {
+                            if let Ok(ts) = t.parse::<f32>() {
+                                current = ts;
+                            } else {
+                                eprintln!("ERR: Parsing error at @PS_info!\n\t{:?}", s);
+                                continue;
+                            }
+                        } else {
+                            eprintln!("ERR: Parsing error at @PS_info!\n\t{:?}", s);
+                            continue;
+                        }
+
+                        println!("{} - {}", voltage, current);
+                        PS_counter += 1;
+                        tests.push(Test {
+                            name: format!("PS_Info_{PS_counter}%Voltage"),
+                            ttype: TType::Measurement,
+                            result: (BResult::Pass, voltage),
+                            limits: TLimit::None,
+                        });
+                        tests.push(Test {
+                            name: format!("PS_Info_{PS_counter}%Current"),
+                            ttype: TType::Current,
+                            result: (BResult::Pass, current),
+                            limits: TLimit::None,
+                        });
                     }
                     _ => {
                         eprintln!("ERR: Not implemented USER DEFINED block!\n\t{:?}", s);
