@@ -342,7 +342,7 @@ impl LogFile {
         });
         //
 
-        let mut status_code = 99;
+        let mut status_code = 0;
 
         let tree = keysight_log::parse_file(p)?;
         let mut batch_node: Option<&keysight_log::TreeNode> = None;
