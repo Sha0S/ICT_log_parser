@@ -720,7 +720,7 @@ impl TreeNode {
             }
         }
 
-        if let Ok(data) = KeysightPrefix::new(data_buff.split('|').map(|f| f.to_string()).collect())
+        if let Ok(data) = KeysightPrefix::new(data_buff.split('|').map(|f| f.trim().to_string()).collect())
         {
             TreeNode { data, branches }
         } else {
