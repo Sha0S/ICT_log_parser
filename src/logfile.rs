@@ -1796,6 +1796,9 @@ impl LogFileHandler {
                     }
                 }
             }
+
+            // if none of the boards has a result for the test, then push None
+            ret.push(TLimit::None);
         }
 
         if ret.is_empty() {
