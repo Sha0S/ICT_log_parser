@@ -956,6 +956,18 @@ impl Log {
             report: log.report,
         }
     }
+
+    fn get_failed_test_list(&self) -> Vec<usize> {
+        let mut ret = Vec::new();
+
+        for res in self.results.iter().enumerate() {
+            if res.1.0 == BResult::Fail {
+                ret.push(res.0);
+            }
+        }
+
+        ret
+    }
 }
 
 struct Board {
@@ -1389,6 +1401,10 @@ impl LogFileHandler {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.multiboards.is_empty()
+    }
+
     pub fn push_from_file(&mut self, p: &Path) -> bool {
         //println!("INFO: Pushing file {} into log-stack", p.display());
         if let Ok(log) = LogFile::load_v2(p) {
@@ -1601,6 +1617,35 @@ impl LogFileHandler {
 
     pub fn get_testlist(&self) -> &Vec<TList> {
         &self.testlist
+    }
+
+    // (DMC, time, result, failed test list)
+    pub fn get_failed_boards(&self) -> Vec<(String, u64, BResult, Vec<String>)> {
+        let mut ret = Vec::new();
+
+        for mb in &self.multiboards {
+            for board in &mb.boards {
+                if !board.all_ok() {
+                    for log in &board.logs {
+                        let failed_ids = log.get_failed_test_list();
+                        let mut failed_tests = Vec::new();
+                        for fail in failed_ids {
+                            if let Some(x) = self.testlist.get(fail) {
+                                failed_tests.push(x.0.clone());
+                            }
+                        }
+                        ret.push((
+                            board.DMC.clone(),
+                            log.time_e,
+                            log.result,
+                            failed_tests
+                        ));
+                    }
+                }
+            }
+        }
+
+        ret
     }
 
     pub fn get_failures(&self, setting: FlSettings) -> Vec<FailureList> {
@@ -2025,5 +2070,9 @@ impl LogFileHandler {
         }
 
         None
+    }
+
+    pub fn get_product_id(&self) -> String {
+        self.product_id.clone()
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ICT_log_parser"
-version = "2.3.4"
+version = "2.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,4 +17,5 @@ log = "0"
 rfd = "0"
 chrono = "0"
 umya-spreadsheet = "1"
+rust_xlsxwriter = { version = "0.68.0", features = ["chrono"] }
 

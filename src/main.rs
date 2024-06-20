@@ -18,6 +18,9 @@ use log_info_window::*;
 mod scan_dir;
 use scan_dir::*;
 
+mod daily_yield;
+use daily_yield::*;
+
 use std::fs;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
@@ -377,6 +380,7 @@ struct MyApp {
 
     info_vp: LogInfoWindow,
     scan_vp: ScanDirWindow,
+    daily_yield_vp: DailyYieldWindow,
 }
 
 impl Default for MyApp {
@@ -384,10 +388,13 @@ impl Default for MyApp {
         let time_start = NaiveTime::from_hms_opt(0, 0, 0).unwrap();
         let time_end = NaiveTime::from_hms_opt(23, 59, 59).unwrap();
 
+        let product_list = load_product_list();
+        let path_list: Vec<String> = product_list.iter().map(|f| f.path.clone()).collect();
+
         Self {
             status: "".to_owned(),
             lang: 0,
-            product_list: load_product_list(),
+            product_list,
             selected_product: 0,
             log_master: Arc::new(RwLock::new(LogFileHandler::new())),
 
@@ -425,6 +432,7 @@ impl Default for MyApp {
             export_settings: ExportSettings::default(),
             info_vp: LogInfoWindow::default(),
             scan_vp: ScanDirWindow::default(),
+            daily_yield_vp: DailyYieldWindow::default(path_list),
         }
     }
 }
@@ -973,6 +981,10 @@ impl eframe::App for MyApp {
                     if ui.button("Scan").clicked() {
                         self.scan_vp.enable();
                     }
+
+                    if ui.button("Daily Yield").clicked() {
+                        self.daily_yield_vp.enable();
+                    }
                 });
             });
 
@@ -1364,6 +1376,10 @@ impl eframe::App for MyApp {
 
         if self.scan_vp.enabled() {
             self.scan_vp.update(ctx);
+        }
+
+        if self.daily_yield_vp.enabled() {
+            self.daily_yield_vp.update(ctx);
         }
     }
 }
