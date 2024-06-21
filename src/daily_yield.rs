@@ -171,6 +171,7 @@ pub struct DailyYieldWindow {
     enabled: bool,
     running: Arc<Mutex<bool>>,
     date: NaiveDate,
+    out_path: String,
     output_message: Arc<Mutex<String>>,
     path_list: Vec<String>,
 }
@@ -181,6 +182,7 @@ impl DailyYieldWindow {
             enabled: false,
             running: Arc::new(Mutex::new(false)),
             date: Local::now().date_naive().pred_opt().unwrap(),
+            out_path: ".\\out.xlsx".to_string(),
             output_message: Arc::new(Mutex::new(String::new())),
             path_list,
         }
@@ -211,6 +213,7 @@ impl DailyYieldWindow {
             .and_local_timezone(Local)
             .unwrap();
         let context = ctx.clone();
+        let out_path = self.out_path.clone();
 
         thread::spawn(move || {
             *running_lock.lock().unwrap() = true;
@@ -245,14 +248,12 @@ impl DailyYieldWindow {
                 let path_buf = PathBuf::from(path);
 
                 if path_buf.exists() {
-                    if let Ok(mut logs) = get_logs_in_path_t(&path_buf, start_t, end_t) {
+                    if let Ok(logs) = get_logs_in_path_t(&path_buf, start_t, end_t) {
                         output_lock
                             .lock()
                             .unwrap()
                             .push_str(&format!("\tFound {} logs.\n", logs.len()));
                         context.request_repaint();
-
-                        logs.sort_by_key(|k| k.1);
 
                         let mut lfh = LogFileHandler::new();
                         for (log, _) in logs {
@@ -290,7 +291,7 @@ impl DailyYieldWindow {
                 }
             }
 
-            if let Err(x) = workbook.save(".\\report_out.xslx") {
+            if let Err(x) = workbook.save(out_path) {
                 output_lock
                 .lock()
                 .unwrap()
@@ -330,6 +331,16 @@ impl DailyYieldWindow {
 
                         if ui.button("Run").clicked() {
                             self.generate_report(ctx);
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut self.out_path );
+
+                        if ui.button("📁").clicked() {
+                            if let Some(input_path) = rfd::FileDialog::new().add_filter("xlsx", &["xlsx"]).save_file() {
+                                self.out_path = input_path.to_string_lossy().to_string();
+                            }
                         }
                     });
                 });
