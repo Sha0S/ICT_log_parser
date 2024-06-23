@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ict_logfile = { path = "../ict_logfile"}
+ICT_logfile = { path = "../ICT_logfile"}
+ICT_config = { path = "../ICT_config"}
 eframe = "0"
 egui = "0"
 egui_extras = { version = "0", features = ["all_loaders", "datepicker"] }
@@ -19,4 +20,3 @@ rfd = "0"
 chrono = "0"
 umya-spreadsheet = "1"
 rust_xlsxwriter = { version = "0.68.0", features = ["chrono"] }
-

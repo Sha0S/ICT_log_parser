@@ -173,11 +173,11 @@ pub struct DailyYieldWindow {
     date: NaiveDate,
     out_path: String,
     output_message: Arc<Mutex<String>>,
-    path_list: Vec<String>,
+    path_list: Vec<PathBuf>,
 }
 
 impl DailyYieldWindow {
-    pub fn default(path_list: Vec<String>) -> Self {
+    pub fn default(path_list: Vec<PathBuf>) -> Self {
         DailyYieldWindow {
             enabled: false,
             running: Arc::new(Mutex::new(false)),
@@ -243,12 +243,11 @@ impl DailyYieldWindow {
                 output_lock
                     .lock()
                     .unwrap()
-                    .push_str(&format!("Scanning directory: {path}\n"));
+                    .push_str(&format!("Scanning directory: {}\n", path.to_string_lossy()));
                 context.request_repaint();
-                let path_buf = PathBuf::from(path);
 
-                if path_buf.exists() {
-                    if let Ok(logs) = get_logs_in_path_t(&path_buf, start_t, end_t) {
+                if path.exists() {
+                    if let Ok(logs) = get_logs_in_path_t(&path, start_t, end_t) {
                         output_lock
                             .lock()
                             .unwrap()

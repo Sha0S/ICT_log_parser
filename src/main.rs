@@ -9,7 +9,8 @@ use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
 
 use chrono::*;
 
-use ict_logfile::*;
+use ICT_logfile::*;
+use ICT_config::*;
 
 mod log_info_window;
 use log_info_window::*;
@@ -27,6 +28,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const PRODUCT_LIST: &str = ".\\products";
 include!("locals.rs");
 
 /*
@@ -151,34 +153,6 @@ fn u64_to_timeframe(mut x: u64) -> String {
     )
 }
 
-struct Product {
-    desc: String,
-    //id: String,
-    path: String,
-    //test_folder: String,
-}
-
-fn load_product_list() -> Vec<Product> {
-    let mut list = Vec::new();
-
-    let p = Path::new(".\\res\\products");
-    if let Ok(fileb) = fs::read_to_string(p) {
-        for line in fileb.lines() {
-            if !line.is_empty() {
-                let mut parts = line.split('|');
-                let desc = parts.next().unwrap().to_owned();
-                let path = parts.next().unwrap().to_owned();
-
-                if Path::new(&path).try_exists().is_ok_and(|x| x) {
-                    list.push(Product { desc, path });
-                }
-            }
-        }
-    }
-
-    list
-}
-
 fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
@@ -213,7 +187,7 @@ enum YieldMode {
 }
 enum LoadMode {
     Folder(PathBuf),
-    ProductList(String),
+    ProductList(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -287,7 +261,7 @@ impl AutoUpdate {
             self.update_start_time = Some(Local::now());
             let state_lock = self.state.clone();
             let log_lock = self.log_buffer.clone();
-            let path = PathBuf::from(&prod.path);
+            let path = prod.get_log_dir().clone();
 
             // ToDo:
             // Idealy we would get last-log from the last manual load.
@@ -387,8 +361,11 @@ impl Default for MyApp {
         let time_start = NaiveTime::from_hms_opt(0, 0, 0).unwrap();
         let time_end = NaiveTime::from_hms_opt(23, 59, 59).unwrap();
 
-        let product_list = load_product_list();
-        let path_list: Vec<String> = product_list.iter().map(|f| f.path.clone()).collect();
+        let product_list = load_product_list(PRODUCT_LIST);
+
+        println!("{:?}", product_list);
+        
+        let path_list: Vec<PathBuf> = product_list.iter().map(|f| f.get_log_dir().clone()).collect();
 
         Self {
             status: "".to_owned(),
@@ -546,12 +523,12 @@ impl eframe::App for MyApp {
                 egui::ComboBox::from_label("")
                     .width(200.0)
                     .selected_text(match self.product_list.get(self.selected_product) {
-                        Some(sel) => sel.desc.clone(),
+                        Some(sel) => sel.get_name().to_string(),
                         None => "".to_string(),
                     })
                     .show_ui(ui, |ui| {
                         for (i, t) in self.product_list.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_product, i, t.desc.clone());
+                            ui.selectable_value(&mut self.selected_product, i, t.get_name().to_string());
                         }
                     });
             });
@@ -648,7 +625,7 @@ impl eframe::App for MyApp {
 
                 if ui.button(MESSAGE[LOAD][self.lang]).clicked() && !self.loading {
                     if let Some(product) = self.product_list.get(self.selected_product) {
-                        self.load_logs(ctx, LoadMode::ProductList(product.path.clone()));
+                        self.load_logs(ctx, LoadMode::ProductList(product.get_log_dir().clone()));
                     }
                 }
             });
