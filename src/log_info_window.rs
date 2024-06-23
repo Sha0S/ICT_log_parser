@@ -28,7 +28,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report.join("\n");
+            self.report = report;
         }
     }
 
@@ -46,7 +46,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report.join("\n");
+            self.report = report;
         }
     }
 
@@ -55,7 +55,7 @@ impl LogInfoWindow {
             self.enabled = true;
             self.DMC = target_DMC.clone();
             self.search_bar = target_DMC;
-            self.report = report.join("\n");
+            self.report = report;
         }
     }
 
@@ -90,7 +90,7 @@ impl LogInfoWindow {
                                 lfh.read().unwrap().get_report_for_SB(&self.search_bar)
                             {
                                 self.DMC = self.search_bar.clone();
-                                self.report = report.join("\n");
+                                self.report = report;
                             }
 
                             ctx.memory_mut(|mem| mem.request_focus(response.id))

@@ -9,8 +9,7 @@ use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
 
 use chrono::*;
 
-mod logfile;
-use logfile::*;
+use ict_logfile::*;
 
 mod log_info_window;
 use log_info_window::*;
