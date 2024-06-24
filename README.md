@@ -1,3 +1,5 @@
+2024-06-24: Moved to ICT_utils repository
+
 # Keysight ICT Logfile parser
 
 ![image](https://github.com/Sha0S/ICT_log_parser/assets/155308506/e31b32ce-9de1-4a1f-b647-5d7dfd344661)
